@@ -1,0 +1,310 @@
+Gemini API quickstart
+
+This quickstart shows you how to install your SDK of choice and then make your first Gemini API request.
+
+Python Node.js REST Go
+
+Install the Gemini API library
+Using Python 3.9+, install the google-generativeai package using the following pip command:
+
+
+pip install -q -U google-generativeai
+Make your first request
+Get a Gemini API key in Google AI Studio
+
+Use the generateContent method to send a request to the Gemini API.
+
+
+import google.generativeai as genai
+
+genai.configure(api_key="YOUR_API_KEY")
+model = genai.GenerativeModel("gemini-1.5-flash")
+response = model.generate_content("Explain how AI works")
+print(response.text)
+What's next
+Now that you made your first API request, you might want to explore the following guides which showcase Gemini in action:
+
+Text generation
+
+Python Node.js Go REST
+
+The Gemini API can generate text output when provided text, images, video, and audio as input.
+
+This guide shows you how to generate text using the generateContent and streamGenerateContent methods. To learn about working with Gemini's vision and audio capabilities, refer to the Vision and Audio guides.
+
+Generate text from text-only input
+The simplest way to generate text using the Gemini API is to provide the model with a single text-only input, as shown in this example:
+
+
+import google.generativeai as genai
+
+genai.configure(api_key="GEMINI_API_KEY")
+
+model = genai.GenerativeModel("gemini-1.5-flash")
+response = model.generate_content("How does AI work?")
+print(response.text)
+In this case, the prompt ("Explain how AI works") doesn't include any output examples, system instructions, or formatting information. It's a zero-shot approach. For some use cases, a one-shot or few-shot prompt might produce output that's more aligned with user expectations. In some cases, you might also want to provide system instructions to help the model understand the task or follow specific guidelines.
+
+Generate text from text-and-image input
+The Gemini API supports multimodal inputs that combine text and media files. The following example shows how to generate text from text-and-image input:
+
+
+import google.generativeai as genai
+import PIL.Image
+
+genai.configure(api_key="GEMINI_API_KEY")
+
+model = genai.GenerativeModel("gemini-1.5-flash")
+organ = PIL.Image.open("/path/to/organ.png")
+response = model.generate_content(["Tell me about this instrument", organ])
+print(response.text)
+Generate a text stream
+By default, the model returns a response after completing the entire text generation process. You can achieve faster interactions by not waiting for the entire result, and instead use streaming to handle partial results.
+
+The following example shows how to implement streaming using the streamGenerateContent method to generate text from a text-only input prompt.
+
+
+import google.generativeai as genai
+
+genai.configure(api_key="GEMINI_API_KEY")
+
+model = genai.GenerativeModel("gemini-1.5-flash")
+response = model.generate_content("Explain how AI works", stream=True)
+for chunk in response:
+    print(chunk.text, end="")
+Create a chat conversation
+The Gemini SDK lets you collect multiple rounds of questions and responses, allowing users to step incrementally toward answers or get help with multipart problems. This SDK feature provides an interface to keep track of conversations history, but behind the scenes uses the same generateContent method to create the response.
+
+The following code example shows a basic chat implementation:
+
+
+import google.generativeai as genai
+
+genai.configure(api_key="GEMINI_API_KEY")
+
+model = genai.GenerativeModel("gemini-1.5-flash")
+chat = model.start_chat(
+    history=[
+        {"role": "user", "parts": "Hello"},
+        {"role": "model", "parts": "Great to meet you. What would you like to know?"},
+    ]
+)
+
+response = chat.send_message("I have 2 dogs in my house.")
+print(response.text)
+response2 = chat.send_message("How many paws are in my house?")
+print(response2.text)
+You can also use streaming with chat, as shown in the following example:
+
+
+import google.generativeai as genai
+
+genai.configure(api_key="GEMINI_API_KEY")
+
+model = genai.GenerativeModel("gemini-1.5-flash")
+chat = model.start_chat(
+    history=[
+        {"role": "user", "parts": "Hello"},
+        {"role": "model", "parts": "Great to meet you. What would you like to know?"},
+    ]
+)
+
+response = chat.send_message("I have 2 dogs in my house.", stream=True)
+for chunk in response:
+    print(chunk.text, end="")
+
+response2 = chat.send_message("How many paws are in my house?", stream=True)
+for chunk in response2:
+    print(chunk.text, end="")
+
+print(chat.history)
+Configure text generation
+Every prompt you send to the model includes parameters that control how the model generates responses. You can use GenerationConfig to configure these parameters. If you don't configure the parameters, the model uses default options, which can vary by model.
+
+The following example shows how to configure several of the available options.
+
+
+import google.generativeai as genai
+
+genai.configure(api_key="GEMINI_API_KEY")
+
+model = genai.GenerativeModel("gemini-1.5-flash")
+response = model.generate_content(
+    "Explain how AI works",
+    generation_config = genai.GenerationConfig(
+        max_output_tokens=1000,
+        temperature=0.1,
+    )
+)
+
+print(response.text)
+Add system instructions
+System instructions let you steer the behavior of a model based on your specific needs and use cases.
+
+By giving the model system instructions, you provide the model additional context to understand the task, generate more customized responses, and adhere to specific guidelines over the full user interaction with the model. You can also specify product-level behavior by setting system instructions, separate from prompts provided by end users.
+
+You can set system instructions when you initialize your model:
+
+
+model=genai.GenerativeModel(
+  model_name="gemini-1.5-flash",
+  system_instruction="You are a cat. Your name is Neko.")
+Then, you can send requests to the model as usual.
+
+For an interactive end to end example of using system instructions, see the system instructions colab.
+
+feedbackExplore audio capabilities with the Gemini API
+
+Python Python Gen AI Node.js Go REST
+
+Gemini can respond to prompts about audio. For example, Gemini can:
+
+Describe, summarize, or answer questions about audio content.
+Provide a transcription of the audio.
+Provide answers or a transcription about a specific segment of the audio.
+Note: You can't generate audio output with the Gemini API.
+This guide demonstrates different ways to interact with audio files and audio content using the Gemini API.
+
+Supported audio formats
+Gemini supports the following audio format MIME types:
+
+WAV - audio/wav
+MP3 - audio/mp3
+AIFF - audio/aiff
+AAC - audio/aac
+OGG Vorbis - audio/ogg
+FLAC - audio/flac
+Technical details about audio
+Gemini imposes the following rules on audio:
+
+Gemini represents each second of audio as 25 tokens; for example, one minute of audio is represented as 1,500 tokens.
+Gemini can only infer responses to English-language speech.
+Gemini can "understand" non-speech components, such as birdsong or sirens.
+The maximum supported length of audio data in a single prompt is 9.5 hours. Gemini doesn't limit the number of audio files in a single prompt; however, the total combined length of all audio files in a single prompt cannot exceed 9.5 hours.
+Gemini downsamples audio files to a 16 Kbps data resolution.
+If the audio source contains multiple channels, Gemini combines those channels down to a single channel.
+Before you begin: Set up your project and API key
+Before calling the Gemini API, you need to set up your project and configure your API key.
+
+ Expand to view how to set up your project and API key
+
+Make an audio file available to Gemini
+You can make an audio file available to Gemini in either of the following ways:
+
+Upload the audio file prior to making the prompt request.
+Provide the audio file as inline data to the prompt request.
+Upload an audio file and generate content
+You can use the File API to upload an audio file of any size. Always use the File API when the total request size (including the files, text prompt, system instructions, etc.) is larger than 20 MB.
+
+Note: The File API lets you store up to 20 GB of files per project, with a per-file maximum size of 2 GB. Files are stored for 48 hours. They can be accessed in that period with your API key, but cannot be downloaded from the API. The File API is available at no cost in all regions where the Gemini API is available.
+Call media.upload to upload a file using the File API. The following code uploads an audio file and then uses the file in a call to models.generateContent.
+
+
+import google.generativeai as genai
+
+myfile = genai.upload_file(media / "sample.mp3")
+print(f"{myfile=}")
+
+model = genai.GenerativeModel("gemini-1.5-flash")
+result = model.generate_content([myfile, "Describe this audio clip"])
+print(f"{result.text=}")
+
+Get metadata for a file
+You can verify the API successfully stored the uploaded file and get its metadata by calling files.get.
+
+
+import google.generativeai as genai
+
+myfile = genai.upload_file(media / "poem.txt")
+file_name = myfile.name
+print(file_name)  # "files/*"
+
+myfile = genai.get_file(file_name)
+print(myfile)
+
+List uploaded files
+You can upload multiple audio files (and other kinds of files). The following code generates a list of all the files uploaded:
+
+
+import google.generativeai as genai
+
+print("My files:")
+for f in genai.list_files():
+    print("  ", f.name)
+
+Delete uploaded files
+Files are automatically deleted after 48 hours. Optionally, you can manually delete an uploaded file. For example:
+
+
+import google.generativeai as genai
+
+myfile = genai.upload_file(media / "poem.txt")
+
+myfile.delete()
+
+try:
+    # Error.
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    result = model.generate_content([myfile, "Describe this file."])
+except google.api_core.exceptions.PermissionDenied:
+    pass
+
+Provide the audio file as inline data in the request
+Instead of uploading an audio file, you can pass audio data in the same call that contains the prompt.
+
+Then, pass that downloaded small audio file along with the prompt to Gemini:
+
+
+# Initialize a Gemini model appropriate for your use case.
+model = genai.GenerativeModel('models/gemini-1.5-flash')
+
+# Create the prompt.
+prompt = "Please summarize the audio."
+
+# Load the samplesmall.mp3 file into a Python Blob object containing the audio
+# file's bytes and then pass the prompt and the audio to Gemini.
+response = model.generate_content([
+    prompt,
+    {
+        "mime_type": "audio/mp3",
+        "data": pathlib.Path('samplesmall.mp3').read_bytes()
+    }
+])
+
+# Output Gemini's response to the prompt and the inline audio.
+print(response.text)
+Note the following about providing audio as inline data:
+
+The maximum request size is 20 MB, which includes text prompts, system instructions, and files provided inline. If your file's size will make the total request size exceed 20 MB, then use the File API to upload files for use in requests.
+If you're using an audio sample multiple times, it is more efficient to use the File API.
+More ways to work with audio
+This section provides a few additional ways to get more from audio.
+
+Get a transcript of the audio file
+To get a transcript, just ask for it in the prompt. For example:
+
+
+# Initialize a Gemini model appropriate for your use case.
+model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+
+# Create the prompt.
+prompt = "Generate a transcript of the speech."
+
+# Pass the prompt and the audio file to Gemini.
+response = model.generate_content([prompt, audio_file])
+
+# Print the transcript.
+print(response.text)
+Refer to timestamps in the audio file
+A prompt can specify timestamps of the form MM:SS to refer to particular sections in an audio file. For example, the following prompt requests a transcript that:
+
+Starts at 2 minutes 30 seconds from the beginning of the file.
+Ends at 3 minutes 29 seconds from the beginning of the file.
+
+# Create a prompt containing timestamps.
+prompt = "Provide a transcript of the speech from 02:30 to 03:29."
+Count tokens
+Call the countTokens method to get a count of the number of tokens in the audio file. For example:
+
+
+model.count_tokens([audio_file])

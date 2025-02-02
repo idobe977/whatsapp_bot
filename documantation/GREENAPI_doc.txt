@@ -1,0 +1,1214 @@
+recieve message:
+Incoming text message#
+This section describes messageData object incoming webhook format for incoming text message. For a description of the general format of incoming webhooks, refer to Incoming messages section.
+
+To get incoming webhooks of this type, two conditions must be true:
+
+typeWebhook = incomingMessageReceived
+
+messageData.typeMessage = textMessage
+
+Configuring an instance
+
+To receive incoming notifications about text messages, you need to enable the settings using one of the following options:
+
+Through console enable the setting Get notifications about incoming messages and files
+
+Through the SetSettings method enable the setting incomingWebhook
+
+Webhook#
+Webhook parameters#
+messageData object parameters
+
+Parameter	Type	Descriptionе
+typeMessage	string	Received message type. For messages of this type, the parameter takes on the value textMessage
+textMessageData	object	Text message data object
+quotedMessage	object	Quoted message data object. Present only if the message itself is a quote
+textMessageData object parameters
+
+Parameter	type	Description
+textMessage	string	Text message
+isTemplateMessage	boolean	The flag indicates whether the message was generated from a template
+quotedMessage object parameters
+
+Parameter	Type	Description
+stanzaId	string	Quoted message id
+participant	string	Quoted message sender's id
+typeMessage	string	Quoted message type
+The rest of the fields are filled depending on the type of the quoted message and are identical to the fields of incoming messages described in Incoming messages section
+
+Webhook body example#
+
+{
+  "typeWebhook": "incomingMessageReceived",
+  "instanceData": {
+    "idInstance": 1234,
+    "wid": "11001234567@c.us",
+    "typeInstance": "whatsapp"
+  },
+  "timestamp": 1588091580,
+  "idMessage": "F7AEC1B7086ECDC7E6E45923F5EDB825",
+  "senderData": {
+    "chatId": "79001234568@c.us",
+    "sender": "79001234568@c.us",
+    "chatName": "John",
+    "senderName": "John",
+    "senderContactName": "John Doe"
+  },
+  "messageData": {
+    "typeMessage": "textMessage",
+    "textMessageData": {
+      "textMessage": "I use Green-API to send this message to you!"
+    }
+  }
+}
+Text message from group chat webhook body example#
+
+{
+    "typeWebhook": "incomingMessageReceived",
+    "instanceData": {
+        "idInstance": 1234,
+        "wid": "11001234567@c.us",
+        "typeInstance": "whatsapp"
+    },
+    "timestamp": 1732268220,
+    "idMessage": "2D9D6721A977D369246509EBE0CE44CA",
+    "senderData": {
+      "chatId": "120363369140947676@g.us",
+      "chatName": "Group",
+      "sender": "79001234568@c.us",
+      "senderName": "John",
+      "senderContactName": "John Doe"
+    },
+    "messageData": {
+        "typeMessage": "textMessage",
+        "textMessageData": {
+            "textMessage": "I use Green-API to send this message to you!"
+        }
+    }
+}
+Text quoted message webhook body example#
+
+{
+  "typeWebhook": "incomingMessageReceived",
+  "instanceData": {
+    "idInstance": 1234,
+    "wid": "11001234567@c.us",
+    "typeInstance": "whatsapp"
+  },
+  "timestamp": 1588091580,
+  "idMessage": "F7AEC1B7086ECDC7E6E45923F5EDB825",
+  "senderData": {
+    "chatId": "79001234568@c.us",
+    "sender": "79001234568@c.us",
+    "chatName": "John",
+    "senderName": "John",
+    "senderContactName": "John Doe"
+  },
+  "messageData": {
+    "typeMessage": "quotedMessage",
+    "extendedTextMessageData": {
+      "text": "Это",
+      "stanzaId": "46618B98B3B9DF50F123456789123456",
+      "participant": "79001234568@c.us"
+    },
+    "quotedMessage": {
+      "stanzaId": "46618B98B3B9DF50F123456789123456",
+      "participant": "79001234568@c.us",
+      "typeMessage": "textMessage",
+      "textMessage": "Hello"
+    }
+  }
+}
+Image/video/audio/document quote text message body example#
+
+{
+  "typeWebhook": "incomingMessageReceived",
+  "instanceData": {
+    "idInstance": 1234,
+    "wid": "11001234567@c.us",
+    "typeInstance": "whatsapp"
+  },
+  "timestamp": 1588091580,
+  "idMessage": "F7AEC1B7086ECDC7E6E45923F5EDB825",
+  "senderData": {
+    "chatId": "79001234568@c.us",
+    "sender": "79001234568@c.us",
+    "chatName": "John",
+    "senderName": "John",
+    "senderContactName": "John Doe"
+  },
+  "messageData": {
+    "typeMessage": "quotedMessage",
+    "extendedTextMessageData": {
+      "text": "Ответ",
+      "stanzaId": "46618B98B3B9DF50F123456789123456",
+      "participant": "79001230000@c.us"
+    },
+    "quotedMessage": {
+      "stanzaId": "46618B98B3B9DF50F123456789123456",
+      "participant": "79061230000@c.us",
+      "typeMessage": "imageMessage",
+      "downloadUrl": "",
+      "caption": "",
+      "jpegThumbnail": ""
+    }
+  }
+}
+Contact quote message webhook body example#
+
+{
+  "typeWebhook": "incomingMessageReceived",
+  "instanceData": {
+    "idInstance": 1234,
+    "wid": "11001234567@c.us",
+    "typeInstance": "whatsapp"
+  },
+  "timestamp": 1588091580,
+  "idMessage": "F7AEC1B7086ECDC7E6E45923F5EDB825",
+  "senderData": {
+    "chatId": "79001234568@c.us",
+    "sender": "79001234568@c.us",
+    "chatName": "John",
+    "senderName": "John",
+    "senderContactName": "John Doe"
+  },
+  "messageData": {
+    "typeMessage": "quotedMessage",
+    "extendedTextMessageData": {
+      "text": "Ответ",
+      "stanzaId": "46618B98B3B9DF50F123456789123456",
+      "participant": "79001230000@c.us"
+    },
+    "quotedMessage": {
+      "stanzaId": "46618B98B3B9DF50F123456789123456",
+      "participant": "79061230000@c.us",
+      "typeMessage": "contactMessage",
+      "contact": {
+        "displayName": "Green-Api",
+        "vcard": "BEGIN:VCARD\nVERSION:3.0\nN:Green-Api\nitem1.TEL;waid=79001230000\nitem1.X-ABLabel:Mobile\nEND:VCARD"
+      }
+    }
+  }
+}
+Location quote message webhook body example#
+
+{
+  "typeWebhook": "incomingMessageReceived",
+  "instanceData": {
+    "idInstance": 1234,
+    "wid": "11001234567@c.us",
+    "typeInstance": "whatsapp"
+  },
+  "timestamp": 1588091580,
+  "idMessage": "F7AEC1B7086ECDC7E6E45923F5EDB825",
+  "senderData": {
+    "chatId": "79001234568@c.us",
+    "sender": "79001234568@c.us",
+    "chatName": "John",
+    "senderName": "John",
+    "senderContactName": "John Doe"
+  },
+  "messageData": {
+    "typeMessage": "quotedMessage",
+    "extendedTextMessageData": {
+      "text": "Address",
+      "stanzaId": "46618B98B3B9DF50F123456789123456",
+      "participant": "79001230000@c.us"
+    },
+    "quotedMessage": {
+      "stanzaId": "46618B98B3B9DF50F123456789123456",
+      "participant": "79060002233@c.us",
+      "typeMessage": "locationMessage",
+      "location": {
+        "nameLocation": "",
+        "address": "",
+        "jpegThumbnail": "",
+        "latitude": 72.5922702,
+        "longitude": 39.6645388
+      }
+    }
+  }
+}
+Link quote message webhook body example#
+
+{
+  "typeWebhook": "incomingMessageReceived",
+  "instanceData": {
+    "idInstance": 1234,
+    "wid": "7000000000@c.us",
+    "typeInstance": "whatsapp"
+  },
+  "timestamp": 1658261933,
+  "idMessage": "CDF9219DD08D3D84CD4E621122AFBFFD",
+  "senderData": {
+    "chatId": "79000000000@c.us",
+    "sender": "79000000000@c.us",
+    "chatName": "John",
+    "senderName": "John",
+    "senderContactName": "John Doe"
+  },
+  "messageData": {
+    "typeMessage": "quotedMessage",
+    "extendedTextMessageData": {
+      "text": "Hello",
+      "stanzaId": "46618B98B3B9DF50F123456789123456",
+      "participant": "79000000000@c.us"
+    },
+    "quotedMessage": {
+      "stanzaId": "46618B98B3B9DF50F123456789123456",
+      "participant": "79000000000@c.us",
+      "typeMessage": "extendedTextMessage",
+      "textMessage": "https://api.greenapi.com/send/?phone=7000000000&text&type=phone_number&app_absent=0",
+      "extendedTextMessage": {
+        "description": " is free and offers simple, secure, reliable messaging and calling, available on phones all over the world.",
+        "title": "Share on ",
+        "previewType": "None",
+        "jpegThumbnail": null
+      }
+    }
+  }
+}
+Webhook body example with error SWE001#
+
+{
+    "typeWebhook": "incomingMessageReceived",
+    "instanceData":
+        {
+        "idInstance":1100000001,
+        "wid":"79000000000@c.us",
+        "typeInstance":"whatsapp"
+    },
+    "timestamp":1700545580,
+    "idMessage":"3AE2864C77312000000",
+    "senderData":
+        {
+        "chatId":"79000000001@c.us",
+        "chatName":"John",
+        "sender":"79000000001@c.us",
+        "senderName":"John",
+    "senderContactName": "John Doe"
+    },
+    "messageData":
+        {
+        "typeMessage":"textMessage",
+        "textMessageData":
+            {
+            "textMessage":"{{SWE001}}"
+        }
+    }
+}
+Webhook body example with error SWE002#
+
+{
+    "typeWebhook":"incomingMessageReceived",
+    "instanceData":
+        {
+        "idInstance":1100000001,
+        "wid":"79000000000@c.us",
+        "typeInstance":"whatsapp"
+    },
+    "timestamp":1700488335,
+    "idMessage":"3EB0D00923D87A3FA01BAE",
+    "senderData":
+        {
+        "chatId":"79000000000@c.us",
+        "chatName":"John",
+        "sender":"79000000000@c.us",
+        "senderName":"John",
+    "senderContactName": "John Doe"
+    },
+    "messageData":
+        {
+        "typeMessage":"documentMessage",
+        "fileMessageData":
+            {
+            "downloadUrl":"{{SWE002}}",
+            "caption":"",
+            "fileName":"Harry Potter and the Philosopher's Stone.pdf",
+            "jpegThumbnail":"",
+            "mimeType":"application/pdf",
+            "forwardingScore":0,
+            "isForwarded":false
+        }
+    }
+}
+Webhook body example with error SWE003#
+
+{
+    "typeWebhook":"incomingMessageReceived",
+    "instanceData":
+        {
+        "idInstance":1100000001,
+        "wid":"79000000000@c.us",
+        "typeInstance":"whatsapp"
+    },
+    "timestamp":1700218861,
+    "idMessage":"6E112CC05BA05DD9DF",
+    "senderData":
+        {
+        "chatId":"79000000000@c.us",
+        "chatName":"John",
+        "sender":"79000000000@c.us",
+        "senderName":"John",
+    "senderContactName": "John Doe"
+        },
+    "messageData":
+                {
+        "typeMessage":"textMessage",
+        "textMessageData":
+            {
+            "textMessage":"{{SWE003}}"
+        }
+    }
+}
+Webhook body example with error SWE999#
+
+{
+    "typeWebhook": "incomingMessageReceived",
+    "instanceData":
+        {
+        "idInstance":1100000001,
+        "wid":"79000000000@c.us",
+        "typeInstance":"whatsapp"
+    },
+    "timestamp":1700545580,
+    "idMessage":"3AE2864C77312000000",
+    "senderData":
+        {
+        "chatId":"79000000001@c.us",
+        "chatName":"John",
+        "sender":"79000000001@c.us",
+        "senderName":"John Doe",
+    "senderContactName": "John Doe"
+    },
+    "messageData":
+        {
+        "typeMessage":"textMessage",
+        "textMessageData":
+            {
+            "textMessage":"{{SWE999}}"
+        }
+    }
+}
+Incoming text message or URL message#
+This section describes messageData object incoming webhook format for incoming text message with URL. For a description of the general format of incoming webhooks, refer to Incoming messages section.
+
+To get incoming webhooks of this type, two conditions must be true:
+
+typeWebhook = incomingMessageReceived
+
+messageData.typeMessage = extendedTextMessage
+
+Configuring an instance
+
+To receive incoming notifications about extended text messages, you need to enable the settings using one of the following options:
+
+Through console enable the setting Get notifications about incoming messages and files
+
+Through the SetSettings method enable the setting incomingWebhook
+
+Webhook#
+Webhook parameters#
+messageData object parameters
+
+Parameter	Type	Description
+typeMessage	string	Incoming message type. For messages of this type, the parameter takes on the value extendedTextMessage
+extendedTextMessageData	object	Data object on incoming link with meta-data
+quotedMessage	object	Quoted message data object. Present only if the message itself is a quote
+extendedTextMessageData object parameters
+
+Parameter	Type	Description
+text	string	Link text or ordinary text
+description	string	Link description, may be empty
+title	string	Link title, may be empty
+containsAutoReply	boolean	Whether the message contains an auto reply (only for advertisement messages)
+mediaType	string	Message media type, for example "IMAGE" (only for advertisement messages)
+showAdAttribution	boolean	Whether the advertisement details should be shown (only for advertisement messages)
+sourceId	string	Advertisement Id (only for advertisement messages)
+sourceType	string	Source type, for example "ad" (only for advertisement messages)
+sourceUrl	string	Advertisement url (only for advertisement messages)
+conversionSource	string	Message localization (only for advertising messages)
+entryPointConversionApp	string	Message source ( only for advertising messages)
+jpegThumbnail	string	base64-coded image preview, may be absent
+thumbnailUrl	string	Image preview url (only for advertisement messages)
+isForwarded	boolean	Whether the message is forwarded, takes on values true/false
+forwardingScore	integer	Number of message forwards
+previewType	string	Preview type (only for advertisement messages) previewType:None value is deprecated
+quotedMessage object parameters
+
+Parameter	Type	Description
+stanzaId	string	quoted message id
+participant	string	quoted message sender's id
+typeMessage	string	quoted message type
+The rest of the fields are filled depending on the type of the quoted message and are identical to the fields of incoming messages described in Incoming messages section
+
+Webhook body example#
+
+{
+    "typeWebhook": "incomingMessageReceived",
+    "instanceData": {
+        "idInstance": 1234,
+        "wid": "11001234567@c.us",
+        "typeInstance": "whatsapp"
+    },
+    "timestamp": 1588091580,
+    "idMessage": "F7AEC1B7086ECDC7E6E45923F5EDB825",
+    "senderData": {
+        "chatId": "79001234568@c.us",
+        "sender": "79001234568@c.us",
+        "chatName": "John",
+        "senderName": "John",
+        "senderContactName": "John Doe"
+    },
+    "messageData": {
+        "typeMessage": "extendedTextMessage",
+        "extendedTextMessageData": {
+            "text": "https://green-api.com/docs/video",
+            "description": "Green API docs show how you can develop the WhatsApp Bot",
+            "title": "How to develop WhatsApp Bot",
+            "jpegThumbnail": "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYG==",
+            "forwardingScore": 4,
+            "isForwarded": true
+        }
+    }
+}
+Message from group chat webhook body example#
+
+{
+    "typeWebhook": "incomingMessageReceived",
+    "instanceData": {
+        "idInstance": 1234,
+        "wid": "11001234567@c.us",
+        "typeInstance": "whatsapp"
+    },
+    "timestamp": 1732268220,
+    "idMessage": "2D9D6721A977D369246509EBE0CE44CA",
+    "senderData": {
+      "chatId": "120363369140947676@g.us",
+      "chatName": "Group",
+      "sender": "79001234568@c.us",
+      "senderName": "John",
+      "senderContactName": "John Doe"
+    },
+    "messageData": {
+        "typeMessage": "extendedTextMessage",
+        "extendedTextMessageData": {
+            "text": "https://green-api.com/docs/video",
+            "description": "Green API docs show how you can develop the WhatsApp Bot",
+            "title": "How to develop WhatsApp Bot",
+            "jpegThumbnail": "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYG==",
+            "forwardingScore": 4,
+            "isForwarded": true
+        }
+    }
+}
+Link or text and contact quote incoming message webhook body example#
+
+{
+  "typeWebhook": "incomingMessageReceived",
+  "instanceData": {
+    "idInstance": 1234,
+    "wid": "11001234567@c.us",
+    "typeInstance": "whatsapp"
+  },
+  "timestamp": 1588091580,
+  "idMessage": "F7AEC1B7086ECDC7E6E45923F5EDB825",
+  "senderData": {
+    "chatId": "79001234568@c.us",
+    "sender": "79001234568@c.us",
+    "senderName": "John",
+    "senderContactName": "John Doe"
+  },
+  "messageData": {
+    "typeMessage": "quotedMessage",
+    "extendedTextMessageData": {
+      "text": "https://yandex.ru/former&utm_source=home&utm_content=main_informer&utm_term=main_number",
+      "stanzaId": "46618B98B3B9DF50F123456789123456",
+      "participant": "79001230000@c.us",
+      "forwardingScore": 4,
+      "isForwarded": true
+    },
+    "quotedMessage": {
+      "stanzaId": "46618B98B3B9DF50F123456789123456",
+      "participant": "79061230000@c.us",
+      "typeMessage": "contactMessage",
+      "contact": {
+        "displayName": "Green-Api",
+        "vcard": "BEGIN:VCARD\nVERSION:3.0\nN:Green-Api\nitem1.TEL;waid=79001230000\nitem1.X-ABLabel:Mobile\nEND:VCARD"
+      }
+    }
+  }
+}
+Link and image quote incoming message webhook body example#
+
+{
+  "typeWebhook": "incomingMessageReceived",
+  "instanceData": {
+    "idInstance": 1234,
+    "wid": "11001234567@c.us",
+    "typeInstance": "whatsapp"
+  },
+  "timestamp": 1588091580,
+  "idMessage": "F7AEC1B7086ECDC7E6E45923F5EDB825",
+  "senderData": {
+    "chatId": "79001234568@c.us",
+    "sender": "79001234568@c.us",
+    "senderName": "John",
+    "senderContactName": "John Doe"
+  },
+  "messageData": {
+    "typeMessage": "quotedMessage",
+    "extendedTextMessageData": {
+      "text": "https://yandex.ru/pogoda/?utm_medium=source=home&utm_content=main_informer&utm_term=main_number",
+      "stanzaId": "46618B98B3B9DF50F123456789123456",
+      "participant": "79001230000@c.us",
+      "forwardingScore": 4,
+      "isForwarded": true
+    },
+    "quotedMessage": {
+      "stanzaId": "46618B98B3B9DF50F123456789123456",
+      "participant": "79061230000@c.us",
+      "typeMessage": "imageMessage",
+      "downloadUrl": "",
+      "caption": "",
+      "jpegThumbnail": ""
+    }
+  }
+}
+Advertising incoming message webhook body example#
+
+{
+    "typeWebhook": "incomingMessageReceived",
+    "instanceData": {
+        "idInstance": 1234,
+        "wid": "11001234567@c.us",
+        "typeInstance": "whatsapp"
+    },
+    "timestamp": 1588091580,
+    "idMessage": "F7AEC1B7086ECDC7E6E45923F5EDB825",
+    "senderData": {
+        "chatId": "79001234568@c.us",
+        "chatName": "John",
+        "sender": "79001234568@c.us",
+        "senderName": "John",
+        "senderContactName": "John Doe"
+    },
+    "messageData": {
+        "typeMessage": "extendedTextMessage",
+        "extendedTextMessageData": {
+            "text": "https://fb.me/gUdvBdhtH",
+            "description": "Новый инстанс для вашего бизнеса!",
+            "title": "Green API",
+            "containsAutoReply": false,
+            "mediaType": "IMAGE",
+            "showAdAttribution": false,
+            "sourceId": "122210486228016873",
+            "sourceType": "post",
+            "sourceUrl": "https://fb.me/gUdvBdhtH",
+            "conversionSource": "FB_Ads",
+            "entryPointConversionApp": "instagram",
+            "jpegThumbnail": "/9j/4AAQSkZJRgABAQAAAQABAAD/7QCEUGhvdG9zaG9wIDMuMAA4qIJUeuMEjYwGc9BtFMXTYvgsnm4ADy6HLLZDqn1Ye5RMev+ae1hED2B9dQIARwjvDIwYCg4/r/9k=",
+            "thumbnailUrl": "https://scontent.xx.fbcdn.net/v/t39.30808-6/436945887_122115998378256688_307643393252141869_n.jpg?stp=dst-jpg_s851x315&_nc_cat=111&ccb=1-7&_nc_sid=5f2048&_nc_ohc=x61r6W-VrJIAb69T4Dl&_nc_ad=z-m&_nc_cid=0&_nc_ht=scontent.xx&oh=00_AfDLFkjNOBYEntBu6SYaUOxDuxbvarjKha9Ez5RQUXjsfg&oe=662D7680",
+            "previewType": ""
+            }
+    }
+}
+
+This section describes messageData object incoming webhook format for incoming image, video, audio or document message. For a description of the general format of incoming webhooks, refer to Incoming messages section.
+
+To get incoming webhooks of this type, two conditions must be true:
+
+typeWebhook = incomingMessageReceived
+
+messageData.typeMessage = imageMessage || videoMessage || documentMessage || audioMessage
+
+Configuring an instance
+
+To receive incoming notifications about image, video, audio, document messages, you need to enable the settings using one of the following options:
+
+Through console enable the setting Get notifications about incoming messages and files
+
+Through the SetSettings method enable the setting incomingWebhook
+
+Webhook#
+Webhook parameters#
+messageData object parameters
+
+Parameter	Type	Description
+typeMessage	string	Received message type. For messages of this type, the field takes the value: imageMessage, videoMessage, documentMessage, audioMessage
+fileMessageData	object	Received file data object
+quotedMessage	object	Quoted message data object. Present only if the message itself is a quote
+fileMessageData object parameters
+
+Parameter	Type	Description
+downloadUrl	string	Link to download file
+caption	string	File caption
+fileName	string	File name. The field is filled in correctly only for typeMessage = documentMessage, in other cases the file name is generated automatically
+jpegThumbnail	string	Image preview in base64
+mimeType	string	File type according to the Media Types classification
+isForwarded	boolean	Whether the message is forwarded, takes on values true/false
+forwardingScore	integer	Number of message forwards
+When sending images via the API with a resolution greater than 3000x3000, a preview will not be generated. The jpegThumbnail field in messages and received notifications will be empty.
+
+quotedMessage object parameters
+
+Parameter	Type	Description
+stanzaId	string	Quoted message id
+participant	string	Quoted message sender's id
+typeMessage	string	Quoted message type
+The rest of the fields are filled depending on the type of the quoted message and are identical to the fields of incoming messages described in Incoming messages section
+
+Webhook body example#
+
+{
+  "typeWebhook": "incomingMessageReceived",
+  "instanceData": {
+    "idInstance": 1234,
+    "wid": "11001234567@c.us",
+    "typeInstance": "whatsapp"
+  },
+  "timestamp": 1588091580,
+  "idMessage": "F7AEC1B7086ECDC7E6E45923F5EDB825",
+  "senderData": {
+    "chatId": "79001234568@c.us",
+    "sender": "79001234568@c.us",
+    "chatName": "John",
+    "senderName": "John",
+    "senderContactName": "John Doe"
+  },
+  "messageData": {
+    "typeMessage": "imageMessage",
+    "fileMessageData": {
+      "downloadUrl": "https://api.greenapi.com/waInstance1234/downloadFile/19136A974392FA8CF584D70DD0E1AEDF",
+      "caption": "Image",
+      "jpegThumbnail": "",
+      "mimeType": "image/jpeg",
+      "forwardingScore": 4,
+      "isForwarded": true
+    }
+  }
+}
+Audio and text quote incoming message webhook body example#
+
+{
+  "typeWebhook": "incomingMessageReceived",
+  "instanceData": {
+    "idInstance": 1234,
+    "wid": "11001234567@c.us",
+    "typeInstance": "whatsapp"
+  },
+  "timestamp": 1588091580,
+  "idMessage": "F7AEC1B7086ECDC7E6E45923F5EDB825",
+  "senderData": {
+    "chatId": "79001234568@c.us",
+    "sender": "79001234568@c.us",
+    "chatName": "John",
+    "senderName": "John",
+    "senderContactName": "John Doe"
+  },
+  "messageData": {
+    "typeMessage": "audioMessage",
+    "fileMessageData": {
+      "downloadUrl": "https://sw-media.storage.greenapi.net/9901742665/39c20293-eb8d-abdd-5fdd1b83820a.mpga",
+      "fileName": "39c20293-eb8d-abdd-5fdd1b83820a.mpga",
+      "mimeType": "image/jpeg",
+      "forwardingScore": 4,
+      "isForwarded": true
+    },
+    "quotedMessage": {
+      "stanzaId": "46618B98B3B9DF50F123456789123456",
+      "participant": "79001234569@c.us",
+      "typeMessage": "textMessage",
+      "textMessage": "Hello"
+    }
+  }
+}
+Audio and audio/video/document quote incoming message webhook body example#
+
+{
+  "typeWebhook": "incomingMessageReceived",
+  "instanceData": {
+    "idInstance": 1234,
+    "wid": "11001234567@c.us",
+    "typeInstance": "whatsapp"
+  },
+  "timestamp": 1588091580,
+  "idMessage": "F7AEC1B7086ECDC7E6E45923F5EDB825",
+  "senderData": {
+    "chatId": "79001234568@c.us",
+    "sender": "79001234568@c.us",
+    "chatName": "John",
+    "senderName": "John",
+    "senderContactName": "John Doe"
+  },
+  "messageData": {
+    "typeMessage": "audioMessage",
+    "fileMessageData": {
+      "downloadUrl": "https://s/990173687/801078ab-3340-4e4aa5.ogg",
+      "caption": "",
+      "fileName": "801078ab-3340-4f78-е9978be4aa5.ogg",
+      "jpegThumbnail": "",
+      "mimeType": "audio/ogg",
+      "forwardingScore": 4,
+      "isForwarded": true
+    },
+    "quotedMessage": {
+      "stanzaId": "46618B98B3B9DF50F123456789123456",
+      "participant": "79001234568@c.us",
+      "typeMessage": "imageMessage",
+      "downloadUrl": "",
+      "caption": "",
+      "jpegThumbnail": ""
+    }
+  }
+}
+
+sendMessage:
+Sending a message to yourself
+
+When sending messages to your number or to a group with one participant, status of the message will be sent (one tick).
+
+Request#
+To send a text message, you have to execute a request at:
+
+POST
+
+{{apiUrl}}/waInstance{{idInstance}}/sendMessage/{{apiTokenInstance}}
+For apiUrl, idInstance and apiTokenInstance request parameters, refer to Before you start section.
+
+Request parameters#
+Parameter	Type	Mandatory	Description
+chatId	string	Yes	Chat Id
+message	string	Yes	Message text.
+Emoji 😃 characters supported. Requires UTF-8 encoding without BOM
+quotedMessageId	string	No	Quoted message Id.
+If present, the message will be sent quoting the specified chat message.
+Quoting a message is only possible from the same chat to which it is sent.
+To send messages from another chat, use the ForwardMessages method
+linkPreview	boolean	No	The parameter includes displaying a preview and a description of the link. Enabled by default. Accepts values: true/false
+The maximum length of a text message is 20000 characters.
+Text formatting should be done in accordance with the rules, specified in our article.
+
+Quoting messages
+
+For the message quoting mechanism to work correctly, the system must know about the message that will be quoted. You can make sure that the message is available for quoting by requesting the journaling method getMessage, if the message is not in the system, then it is impossible to quote such a message.
+
+To quote incoming messages, you must enable the setting Receive notifications about incoming messages and files.
+
+To quote outgoing messages sent from a phone, enable the setting Receive notifications about messages sent from a phone.
+
+This way, the messages will get into the system and they can be quoted. You can set up the settings using the SetSettings method or through your personal account.
+
+Request body example#
+Sending a message to a personal chat:
+
+
+{
+    "chatId": "11001234567@c.us",
+    "message": "I use Green-API to send this message to you!"
+}
+Sending a message to a group chat:
+
+
+{
+    "chatId": "11001234567-1581234048@g.us",
+    "message": "I use Green-API to send this message to you!"
+}
+Sending a quoted message:
+
+
+{
+    "chatId": "11001234567@с.us",
+    "message": "I use Green-API to send this message to you!",
+    "quotedMessageId": "361B0E63F2FDF95903B6A9C9A102F34B"
+}
+Response#
+Response parameters#
+Parameter	Type	Description
+idMessage	string	Sent message Id
+Response body example#
+
+{
+    "idMessage": "3EB0C767D097B7C7C030"
+}
+SendMessage errors#
+For a list of errors common to all methods, refer to Common errors section
+
+HTTP code	Error identifier	Description
+400	Bad Request
+Validation failed	Validation error
+400	Validation failed.
+Details: 'message' length must be less than or equal to 20000 characters long	The message text must be less than or equal to 20 000 characters
+500	request entity too large	Json length exceeded (>100kb)
+Sending with invalid Quoted message ID
+
+If the quotedMessageId is specified incorrectly, the system will return code 200 and the id of the message, but it will not be delivered to the recipient.
+
+Request examples#
+
+Python
+PHP
+cURL
+Java - Spring
+Java - Unirest
+VBA
+Delphi
+
+import requests
+
+url = "{{apiUrl}}/waInstance{{idInstance}}/sendMessage/{{apiTokenInstance}}"
+
+payload = {
+    "chatId": "11001234567@c.us",
+    "message": "I use Green-API to send this message to you!"
+}
+headers = {
+'Content-Type': 'application/json'
+}
+
+response = requests.post(url, json=payload, headers=headers)
+
+print(response.text.encode('utf8'))
+
+send poll:
+SendPoll#
+Test Postman Apidog
+
+This method is intended for sending messages with a poll to a private or group chat. The message will be added to the send queue. The message is stored for 24 hours in the queue and will be sent immediately after phone authorization. The rate of message dispatch from the queue is governed by the message sending interval parameter.
+
+To receive incoming notifications about poll messages, you need to enable the settings using one of the following options:
+
+Through console enable the settings Get notifications about incoming messages and files and Get notifications about surveys
+Through the SetSettings method enable the settings incomingWebhook and pollMessageWebhook
+Request#
+To send, you need to make a request to the address:
+
+POST
+
+{{apiUrl}}/waInstance{{idInstance}}/sendPoll/{{apiTokenInstance}}
+To get the apiUrl, idInstance and apiTokenInstance request parameters, refer to the Before You Start section.
+
+Request Parameters#
+Parameter	Type	Required	Description
+chatId	string	Yes	Chat Identifier
+message	string	Yes	Message text. Emoji characters 😃 are supported. The maximum length of the message text is 255 characters.
+options	array	Yes	Array of poll options. The number of answer options in a poll cannot be more than 12. Answer options must be different from each other by at least one symbol.
+multipleAnswers	boolean	No	Allow multiple answers. true - enabled, false - disabled, default: false
+quotedMessageId	string	No	Quoted message Id. If present, the message will be sent quoting the specified chat message.
+Quoting a message is only possible from the same chat to which it is sent.
+To send messages from another chat, use the ForwardMessages method
+Quoting messages
+
+For the message quoting mechanism to work correctly, the system must know about the message that will be quoted. You can make sure that the message is available for quoting by requesting the journaling method getMessage, if the message is not in the system, then it is impossible to quote such a message.
+
+To quote incoming messages, you must enable the setting Receive notifications about incoming messages and files.
+
+To quote outgoing messages sent from a phone, enable the setting Receive notifications about messages sent from a phone.
+
+This way, the messages will get into the system and they can be quoted. You can set up the settings using the SetSettings method or through your personal account.
+
+options array fields:
+
+Parameter	Type	Description
+optionName	string	Poll choice option text. The maximum text
+length is 100 characters.
+Example of Request Body#
+Number of answers options
+
+To successfully send a poll, the number of answer options must be at least 2 and no more than 12.
+
+Sending a message to a private chat:
+
+
+{
+    "chatId": "11001234567@c.us",
+    "message": "Please choose the color:",
+    "options": [
+        {"optionName": "green"},
+        {"optionName": "red"},
+        {"optionName": "blue"}
+    ],
+    "multipleAnswers": false,
+}
+Response#
+Response Fields#
+Field	Type	ОписанDescriptionие
+idMessage	string	Identifier of the sent message
+Example of Response Body#
+
+{
+    "idMessage": "3EB0C767D097B7C7C030"
+}
+Example of Display for the Receiver#
+Example of poll display
+
+SendPoll errors#
+For a list of errors common to all methods, refer to Common errors section
+
+HTTP code	Error identifier	Description
+400	Bad Request
+Validation failed	Validation error
+400	Validation failed.
+Details: Validation failed. Details: 'message' length must be less than or equal to 255 characters long	Message length must be less than or equal to 255 characters
+400	Validation failed.
+Details: 'optionName' length must be less than or equal to 100 characters long	The length of the answer option must be less than or equal to 100 characters
+400	Validation failed.
+Details: 'options[X].optionName' is required	Incorrect key for answer option X
+400	Validation failed.
+Details: 'options' length must be from 2 to 12 elements inclusive	Incorrect number of answer options
+400	Validation failed.
+Details: 'optionName' field must have unique value	Answer options must not be repeated
+500	request entity too large	Json length exceeded (>100kb)
+Sending with invalid Quoted message ID
+
+If the quotedMessageId is specified incorrectly, the system will return code 200 and the id of the message, but it will not be delivered to the recipient.
+
+Request examples#
+
+Python
+cURL
+VBA
+
+import requests
+
+url = "{{apiUrl}}/waInstance{{idInstance}}/sendPoll/{{apiTokenInstance}}"
+
+payload = {
+    "chatId": "11001234567@c.us",
+    "message": "Please choose the color:",
+    "options": [
+        {"optionName": "green"},
+        {"optionName": "red"},
+        {"optionName": "blue"}
+    ],
+    "multipleAnswers": True
+}
+
+headers = {
+'Content-Type': 'application/json'
+}
+
+response = requests.post(url, json=payload, headers=headers)
+
+print(response.text.encode('utf8'))
+
+recive_poll:
+Incoming poll message#
+This section describes messageData object incoming webhook format for incoming poll message. For a description of the general format of incoming webhooks, refer to Incoming Messages section.
+
+To get incoming webhooks of this type, two conditions must be true:
+
+typeWebhook = incomingMessageReceived
+
+messageData.typeMessage = pollMessage
+
+Configuring an instance
+
+To receive incoming notifications about poll messages, you need to enable the settings using one of the following options:
+
+Through console enable the settings Get notifications about incoming messages and files and Get notifications about surveys
+
+Through the SetSettings method enable the settings incomingWebhook and pollMessageWebhook
+
+Webhook#
+Webhook parameters#
+messageData object parameters
+
+Parameter	Type	Description
+typeMessage	string	Incoming message type. For messages of this type the parameter takes on the value pollMessage.
+pollMessageData	object	Poll message data object
+pollMessageData object parameters
+
+Parameter	Type	Description
+name	string	Poll name
+options	array	Array of poll options
+multipleAnswers	boolean	Allow multiple answers. true - enable, false - disable, default: false
+options array parameters
+
+Parameter	Type	Description
+optionName	string	Option name
+Webhook body example#
+
+{
+  "typeWebhook": "incomingMessageReceived",
+  "instanceData": {
+    "idInstance": 1234,
+    "wid": "11001234567@c.us",
+    "typeInstance": "whatsapp"
+  },
+  "timestamp": 1588091580,
+  "idMessage": "F7AEC1B7086ECDC7E6E45923F5EDB825",
+  "senderData": {
+    "chatId": "79001234568@c.us",
+    "sender": "79001234568@c.us",
+      "chatName": "John",
+    "senderName": "John",
+    "senderContactName": "John Doe"
+  },
+  "messageData": {
+    "typeMessage": "pollMessage",
+    "pollMessageData": {
+      "name": "Poll Name",
+      "options": [
+        {
+          "optionName": "Variant 1"
+        },
+        {
+          "optionName": "Variant 2"
+        }
+      ],
+      "multipleAnswers": false
+    }
+  }
+}
+Poll message from group chat webhook body example#
+
+{
+    "typeWebhook": "incomingMessageReceived",
+    "instanceData": {
+        "idInstance": 1234,
+        "wid": "11001234567@c.us",
+        "typeInstance": "whatsapp"
+    },
+    "timestamp": 1732268220,
+    "idMessage": "2D9D6721A977D369246509EBE0CE44CA",
+    "senderData": {
+      "chatId": "120363369140947676@g.us",
+      "chatName": "Group",
+      "sender": "79001234568@c.us",
+      "senderName": "John",
+      "senderContactName": "John Doe"
+  },
+  "messageData": {
+    "typeMessage": "pollMessage",
+    "pollMessageData": {
+      "name": "Poll Name",
+      "options": [
+        {
+          "optionName": "Variant 1"
+        },
+        {
+          "optionName": "Variant 2"
+        }
+      ],
+      "multipleAnswers": false
+    }
+  }
+}
+Incoming poll update message#
+This section describes messageData object incoming webhook format for incoming poll update message. For a description of the general format of incoming webhooks, refer to Incoming Messages section.
+
+To get incoming webhooks of this type, two conditions must be true:
+
+typeWebhook = incomingMessageReceived
+
+messageData.typeMessage = pollUpdateMessage
+
+Configuring an instance
+
+To receive incoming notifications about poll messages, you need to enable the settings using one of the following options:
+
+Through console enable the settings Get notifications about incoming messages and files and Get notifications about surveys
+
+Through the SetSettings method enable the settings incomingWebhook and pollMessageWebhook
+
+If you select an option in a poll, then immediately cancel it, the pollUpdateMessage webhook will be sent for the last state of the poll.
+If you select an option in a poll, then cancel it a second or more later, the pollUpdateMessage webhook will be sent for both states of the poll.
+Webhook#
+Webhook parameters#
+messageData object parameters
+
+Parameter	Type	Description
+typeMessage	string	Incoming message type. For messages of this type the parameter takes on the value pollUpdateMessage.
+pollMessageData	object	Poll message data object
+pollMessageData object parameters
+
+Parameter	Type	Description
+stanzaId	string	Poll message id
+name	string	Poll name
+votes	array	Array of poll options
+multipleAnswers	boolean	Allow multiple answers. true - enabled, false - disabled, default: false
+votes array parameters
+
+Parameter	Type	Description
+optionName	string	Option name
+optionVoters	array	Array of wid users who selected the option
+optionVoters array parameters
+
+Parameter	Type	Description
+default	string	wid user who selected the option
+Webhook body example#
+
+{
+  "typeWebhook": "incomingMessageReceived",
+  "instanceData": {
+    "idInstance": 1234,
+    "wid": "11001234567@c.us",
+    "typeInstance": "whatsapp"
+  },
+  "timestamp": 1588091580,
+  "idMessage": "F7AEC1B7086ECDC7E6E45923F5EDB825",
+  "senderData": {
+    "chatId": "79001234568@c.us",
+    "sender": "79001234568@c.us",
+      "chatName": "John",
+    "senderName": "John",
+    "senderContactName": "John Doe"
+  },
+  "messageData": {
+    "typeMessage": "pollUpdateMessage",
+    "pollMessageData": {
+      "stanzaId": "BAE53AFDD5F0C000",
+      "name": "Poll Name",
+      "votes": [
+        {
+          "optionName": "Variant 1",
+          "optionVoters": []
+        },
+        {
+          "optionName": "Variant 2",
+          "optionVoters": ["79001234568@c.us"]
+        }
+      ],
+      "multipleAnswers": false
+    }
+  }
+}
+Incoming poll update message from group chat webhook body example#
+
+{
+    "typeWebhook": "incomingMessageReceived",
+    "instanceData": {
+        "idInstance": 1234,
+        "wid": "11001234567@c.us",
+        "typeInstance": "whatsapp"
+    },
+    "timestamp": 1732268220,
+    "idMessage": "2D9D6721A977D369246509EBE0CE44CA",
+    "senderData": {
+      "chatId": "120363369140947676@g.us",
+      "chatName": "Group",
+      "sender": "79001234568@c.us",
+      "senderName": "John",
+      "senderContactName": "John Doe"
+  },
+  "messageData": {
+    "typeMessage": "pollUpdateMessage",
+    "pollMessageData": {
+      "stanzaId": "BAE53AFDD5F0C000",
+      "name": "Poll Name",
+      "votes": [
+        {
+          "optionName": "Variant 1",
+          "optionVoters": []
+        },
+        {
+          "optionName": "Variant 2",
+          "optionVoters": ["79001234568@c.us"]
+        }
+      ],
+      "multipleAnswers": false
+    }
+  }
+}

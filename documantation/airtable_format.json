@@ -1,0 +1,90 @@
+{
+    "tableName": "תשובות שאלון אפיון",
+    "description": "תשובות ללקוחות שמילאו את שאלון האפיון העסקי",
+    "fields": [
+      {
+        "name": "שם מלא",
+        "type": "singleLineText"
+      },
+      {
+        "name": "שם העסק",
+        "type": "singleLineText"
+      },
+      {
+        "name": "מספר טלפון",
+        "type": "phoneNumber"
+      },
+      {
+        "name": "בכללי על העסק",
+        "type": "multilineText"
+      },
+      {
+        "name": "יעדים לשנה הקרובה",
+        "type": "multilineText"
+      },
+      {
+        "name": "תהליכי עבודה וכלים",
+        "type": "multilineText"
+      },
+      {
+        "name": "תהליכים גוזלי זמן",
+        "type": "multilineText"
+      },
+      {
+        "name": "ניהול קשר לקוחות",
+        "type": "multilineText"
+      },
+      {
+        "name": "מפתח לחוויית לקוח",
+        "type": "multilineText"
+      },
+      {
+        "name": "מערכות נדרשות",
+        "type": "multilineText"
+      },
+      {
+        "name": "הגדרת הצלחה",
+        "type": "multilineText"
+      },
+      {
+        "name": "דגשים לתהליך",
+        "type": "multilineText"
+      },
+      {
+        "name": "הערות נוספות",
+        "type": "multilineText"
+      },
+      {
+        "name": "תאריך מילוי",
+        "type": "date",
+        "options": {
+          "dateFormat": "local"
+        }
+      },
+      {
+        "name": "סטטוס",
+        "type": "singleSelect",
+        "options": {
+          "choices": [
+            {
+              "name": "חדש",
+              "color": "redBright"
+            },
+            {
+              "name": "בטיפול",
+              "color": "yellowBright"
+            },
+            {
+              "name": "הושלם",
+              "color": "greenBright"
+            }
+          ]
+        }
+      },
+      {
+        "name": "מזהה צ'אט וואטסאפ",
+        "type": "singleLineText",
+        "description": "מזהה ייחודי של שיחת הוואטסאפ"
+      }
+    ]
+  }
