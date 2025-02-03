@@ -520,8 +520,14 @@ class WhatsAppSurveyBot:
         """Generate a summary of the survey answers using the language model"""
         try:
             prompt = """
-            Based on the following answers, provide a concise summary in Hebrew:
+            בהתבסס על התשובות הבאות, אנא צור סיכום תמציתי בעברית:
             {}
+
+            הסיכום צריך להיות:
+            1. קצר ותמציתי
+            2. מדגיש את הנקודות העיקריות
+            3. כתוב בשפה מקצועית אך ידידותית
+            4. בעל נראות טובה, ואם מתאים, מכיל אימוגים
             """.format(json.dumps(answers, ensure_ascii=False))
             response = model.generate_content([prompt])
             return response.text
