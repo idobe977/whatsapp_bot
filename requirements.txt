@@ -6,3 +6,4 @@ google-generativeai==0.3.2
 pyairtable==2.3.0
 mutagen==1.47.0
 python-multipart==0.0.9
+aiohttp==3.9.3
