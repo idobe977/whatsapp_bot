@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 import uvicorn
 import logging
+import os
 from whatsapp_survey_bot import bot, handle_webhook
 
 # Configure logging
@@ -30,4 +31,11 @@ async def health_check():
     return {"status": "healthy"}
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    # Get port from environment variable (Render.com sets this)
+    port = int(os.environ.get("PORT", 8000))
+    
+    # Log the port being used
+    logger.info(f"Starting server on port {port}")
+    
+    # Run the server
+    uvicorn.run(app, host="0.0.0.0", port=port) 
