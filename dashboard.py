@@ -90,7 +90,32 @@ if page == "סקירה כללית":
     try:
         for survey_name, table_id in SURVEY_TABLE_IDS.items():
             try:
+                # Add debug logging
+                st.debug(f"מנסה להתחבר לטבלה {survey_name} עם מזהה {table_id}")
                 table = airtable.table(AIRTABLE_BASE_ID, table_id)
+                
+                # Test connection and permissions
+                try:
+                    test_records = table.all()
+                    st.debug(f"התחברות לטבלה {survey_name} הצליחה. מספר רשומות: {len(test_records)}")
+                except Exception as api_error:
+                    error_details = str(api_error)
+                    if "INVALID_PERMISSIONS" in error_details:
+                        st.error(f"""
+                        שגיאת הרשאות בטבלה {survey_name}:
+                        - מזהה בסיס: {AIRTABLE_BASE_ID}
+                        - מזהה טבלה: {table_id}
+                        - פרטי שגיאה: {error_details}
+                        
+                        אנא וודא:
+                        1. שמזהה הטבלה נכון (Table ID)
+                        2. שיש לך הרשאות צפייה לטבלה
+                        3. שה-API key שלך פעיל ובעל הרשאות מתאימות
+                        """)
+                    else:
+                        st.error(f"שגיאה בהתחברות לטבלה {survey_name}: {error_details}")
+                    continue
+
                 records = table.all()
                 all_records.extend(records)
                 
@@ -377,16 +402,31 @@ elif page == "הגדרות בוט":
     st.subheader("סטטוס ובקרת בוט")
     col1, col2 = st.columns(2)
     
+    # Get the bot URL from environment variable or use default
+    BOT_URL = os.getenv("BOT_URL", "https://your-bot-url.onrender.com")
+    
     with col1:
         if st.button("בדוק סטטוס בוט"):
             try:
-                response = requests.get("http://localhost:8000/health")
+                # Add timeout to prevent long waits
+                response = requests.get(f"{BOT_URL}/health", timeout=5)
                 if response.status_code == 200:
                     st.success("הבוט פעיל ותקין! 🟢")
                 else:
-                    st.error("הבוט אינו מגיב כראוי 🔴")
+                    st.error(f"הבוט אינו מגיב כראוי 🔴 (קוד {response.status_code})")
+            except requests.exceptions.ConnectionError:
+                st.error(f"""
+                לא ניתן להתחבר לבוט בכתובת {BOT_URL}
+                
+                אנא וודא:
+                1. שהבוט רץ ופעיל
+                2. שהכתובת נכונה (הגדר משתנה BOT_URL בקובץ .env)
+                3. שיש גישה לשרת
+                """)
+            except requests.exceptions.Timeout:
+                st.error("תם הזמן המוקצב לתשובה מהבוט")
             except Exception as e:
-                st.error(f"לא ניתן להתחבר לבוט: {str(e)}")
+                st.error(f"שגיאה בבדיקת סטטוס הבוט: {str(e)}")
     
     with col2:
         if st.button("הצג לוגים"):
