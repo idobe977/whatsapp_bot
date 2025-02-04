@@ -17,44 +17,66 @@ load_dotenv()
 AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
 SURVEY_TABLE_IDS = {
-    "business_survey": os.getenv("AIRTABLE_BUSINESS_SURVEY_TABLE_ID"),
-    "research_survey": os.getenv("AIRTABLE_RESEARCH_SURVEY_TABLE_ID"),
-    "satisfaction_survey": os.getenv("AIRTABLE_SATISFACTION_SURVEY_TABLE_ID")
+    "סקר עסקי": os.getenv("AIRTABLE_BUSINESS_SURVEY_TABLE_ID"),
+    "סקר מחקר": os.getenv("AIRTABLE_RESEARCH_SURVEY_TABLE_ID"),
+    "סקר שביעות רצון": os.getenv("AIRTABLE_SATISFACTION_SURVEY_TABLE_ID")
 }
+
+# Validate environment variables
+if not all([AIRTABLE_API_KEY, AIRTABLE_BASE_ID] + list(SURVEY_TABLE_IDS.values())):
+    st.error("חסרים משתני סביבה. אנא וודא שכל המשתנים מוגדרים ב-.env")
+    st.code("""
+    נדרשים המשתנים הבאים:
+    AIRTABLE_API_KEY=your_api_key
+    AIRTABLE_BASE_ID=your_base_id
+    AIRTABLE_BUSINESS_SURVEY_TABLE_ID=your_table_id
+    AIRTABLE_RESEARCH_SURVEY_TABLE_ID=your_table_id
+    AIRTABLE_SATISFACTION_SURVEY_TABLE_ID=your_table_id
+    """)
+    st.stop()
 
 # Initialize Airtable client
 airtable = Api(AIRTABLE_API_KEY)
 
 # Set page config
 st.set_page_config(
-    page_title="WhatsApp Survey Bot Dashboard",
+    page_title="דשבורד בוט סקרים בוואטסאפ",
     page_icon="📊",
     layout="wide"
 )
 
-# Custom CSS
+# Custom CSS for RTL support
 st.markdown("""
 <style>
-    .stMetric .metric-label { font-size: 16px !important; }
+    .stMetric .metric-label { font-size: 16px !important; direction: rtl; }
     .stMetric .metric-value { font-size: 24px !important; }
     div[data-testid="stMetricValue"] > div { font-size: 24px !important; }
     .hebrew { direction: rtl; text-align: right; }
+    div.row-widget.stRadio > div { direction: rtl; }
+    div.row-widget.stSelectbox > div { direction: rtl; }
+    .stMarkdown { direction: rtl; text-align: right; }
+    h1, h2, h3, h4, h5, h6 { direction: rtl; text-align: right; }
+    .element-container { direction: rtl; }
+    .stDataFrame { direction: rtl; }
+    button { direction: rtl; }
 </style>
 """, unsafe_allow_html=True)
 
 # Title and description
-st.title("📱 WhatsApp Survey Bot Dashboard")
+st.title("📱 דשבורד בוט סקרים בוואטסאפ")
 st.markdown("""
-This dashboard provides insights and management capabilities for the WhatsApp Survey Bot.
-""")
+<div class='hebrew'>
+דשבורד זה מספק תובנות ויכולות ניהול עבור בוט הסקרים בוואטסאפ.
+</div>
+""", unsafe_allow_html=True)
 
 # Sidebar
-st.sidebar.title("Navigation")
-page = st.sidebar.radio("Go to", ["Overview", "Survey Responses", "Analytics", "Bot Settings"])
+with st.sidebar:
+    st.title("ניווט")
+    page = st.radio("עבור אל", ["סקירה כללית", "תגובות סקר", "אנליטיקה", "הגדרות בוט"])
 
-if page == "Overview":
-    # Overview metrics
-    st.header("📈 Overview")
+if page == "סקירה כללית":
+    st.header("📈 סקירה כללית")
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -67,90 +89,105 @@ if page == "Overview":
     
     try:
         for survey_name, table_id in SURVEY_TABLE_IDS.items():
-            table = airtable.table(AIRTABLE_BASE_ID, table_id)
-            records = table.all()
-            all_records.extend(records)
-            
-            total_responses += len(records)
-            
-            # Count today's responses
-            today = datetime.now().date()
-            today_records = [r for r in records if r['fields'].get('תאריך מילוי', '').startswith(str(today))]
-            responses_today += len(today_records)
-            
-            # Calculate completion rate
-            completed = len([r for r in records if r['fields'].get('סטטוס') == 'הושלם'])
-            if records:
-                completion_rate += (completed / len(records)) * 100
+            try:
+                table = airtable.table(AIRTABLE_BASE_ID, table_id)
+                records = table.all()
+                all_records.extend(records)
                 
-            # Count active surveys
-            active = len([r for r in records if r['fields'].get('סטטוס') in ['חדש', 'בטיפול']])
-            active_surveys += active
+                total_responses += len(records)
+                
+                # Count today's responses
+                today = datetime.now().date()
+                today_records = [r for r in records if r['fields'].get('תאריך מילוי', '').startswith(str(today))]
+                responses_today += len(today_records)
+                
+                # Calculate completion rate
+                completed = len([r for r in records if r['fields'].get('סטטוס') == 'הושלם'])
+                if records:
+                    completion_rate += (completed / len(records)) * 100
+                    
+                # Count active surveys
+                active = len([r for r in records if r['fields'].get('סטטוס') in ['חדש', 'בטיפול']])
+                active_surveys += active
+                
+            except Exception as table_error:
+                st.warning(f"שגיאה בטעינת נתונים מטבלה {survey_name}: {str(table_error)}")
+                continue
         
         if SURVEY_TABLE_IDS:
             completion_rate /= len(SURVEY_TABLE_IDS)
         
         with col1:
-            st.metric("Total Responses", total_responses)
+            st.metric("סך הכל תגובות", total_responses)
         with col2:
-            st.metric("Responses Today", responses_today)
+            st.metric("תגובות היום", responses_today)
         with col3:
-            st.metric("Active Surveys", active_surveys)
+            st.metric("סקרים פעילים", active_surveys)
         with col4:
-            st.metric("Completion Rate", f"{completion_rate:.1f}%")
+            st.metric("שיעור השלמה", f"{completion_rate:.1f}%")
             
         # Response Trend
-        st.subheader("📊 Response Trend")
+        st.subheader("📊 מגמת תגובות")
         if all_records:
             df = pd.DataFrame([{
-                'Date': r['fields'].get('תאריך מילוי', ''),
-                'Survey Type': r['fields'].get('סוג שאלון', ''),
-                'Status': r['fields'].get('סטטוס', '')
+                'תאריך': r['fields'].get('תאריך מילוי', ''),
+                'סוג סקר': r['fields'].get('סוג שאלון', ''),
+                'סטטוס': r['fields'].get('סטטוס', '')
             } for r in all_records])
             
-            df['Date'] = pd.to_datetime(df['Date'])
-            df = df.sort_values('Date')
+            df['תאריך'] = pd.to_datetime(df['תאריך'])
+            df = df.sort_values('תאריך')
             
             # Daily responses trend
-            daily_responses = df.groupby('Date').size().reset_index(name='Count')
-            fig = px.line(daily_responses, x='Date', y='Count', 
-                         title='Daily Survey Responses',
-                         labels={'Count': 'Number of Responses', 'Date': 'Date'})
+            daily_responses = df.groupby('תאריך').size().reset_index(name='כמות')
+            fig = px.line(daily_responses, x='תאריך', y='כמות', 
+                         title='תגובות יומיות לסקר',
+                         labels={'כמות': 'מספר תגובות', 'תאריך': 'תאריך'})
+            fig.update_layout(direction='rtl')
             st.plotly_chart(fig, use_container_width=True)
             
         # Recent Activity
-        st.subheader("📅 Recent Activity")
+        st.subheader("📅 פעילות אחרונה")
         
         recent_records = []
         for survey_name, table_id in SURVEY_TABLE_IDS.items():
-            table = airtable.table(AIRTABLE_BASE_ID, table_id)
-            records = table.all()
-            for record in records:
-                recent_records.append({
-                    'Survey Type': survey_name,
-                    'Date': record['fields'].get('תאריך מילוי', ''),
-                    'Name': record['fields'].get('שם מלא', ''),
-                    'Status': record['fields'].get('סטטוס', ''),
-                    'Meeting Interest': record['fields'].get('מעוניין לקבוע פגישה', 'לא צוין')
-                })
+            try:
+                table = airtable.table(AIRTABLE_BASE_ID, table_id)
+                records = table.all()
+                for record in records:
+                    recent_records.append({
+                        'סוג סקר': survey_name,
+                        'תאריך': record['fields'].get('תאריך מילוי', ''),
+                        'שם': record['fields'].get('שם מלא', ''),
+                        'סטטוס': record['fields'].get('סטטוס', ''),
+                        'מעוניין בפגישה': record['fields'].get('מעוניין לקבוע פגישה', 'לא צוין')
+                    })
+            except Exception as table_error:
+                continue
         
         if recent_records:
             df = pd.DataFrame(recent_records)
-            df['Date'] = pd.to_datetime(df['Date'])
-            df = df.sort_values('Date', ascending=False).head(10)
+            df['תאריך'] = pd.to_datetime(df['תאריך'])
+            df = df.sort_values('תאריך', ascending=False).head(10)
             st.dataframe(df, hide_index=True)
         
     except Exception as e:
-        st.error(f"Error loading overview data: {str(e)}")
+        st.error(f"שגיאה בטעינת נתוני סקירה: {str(e)}")
+        if "INVALID_PERMISSIONS" in str(e):
+            st.warning("""
+            נראה שיש בעיה עם הרשאות Airtable. אנא וודא:
+            1. מפתח ה-API תקין ופעיל
+            2. יש לך גישה לבסיס הנתונים
+            3. מזהי הטבלאות נכונים
+            """)
 
-elif page == "Survey Responses":
-    st.header("📝 Survey Responses")
+elif page == "תגובות סקר":
+    st.header("📝 תגובות סקר")
     
     # Survey type selector
     survey_type = st.selectbox(
-        "Select Survey Type",
-        list(SURVEY_TABLE_IDS.keys()),
-        format_func=lambda x: x.replace('_', ' ').title()
+        "בחר סוג סקר",
+        list(SURVEY_TABLE_IDS.keys())
     )
     
     try:
@@ -165,19 +202,19 @@ elif page == "Survey Responses":
             col1, col2, col3 = st.columns(3)
             with col1:
                 status_filter = st.multiselect(
-                    "Filter by Status",
+                    "סנן לפי סטטוס",
                     df['סטטוס'].unique()
                 )
             with col2:
                 date_range = st.date_input(
-                    "Date Range",
+                    "טווח תאריכים",
                     value=(
                         datetime.now().date() - timedelta(days=30),
                         datetime.now().date()
                     )
                 )
             with col3:
-                search_term = st.text_input("Search by Name", "")
+                search_term = st.text_input("חיפוש לפי שם", "")
             
             # Apply filters
             if status_filter:
@@ -197,90 +234,98 @@ elif page == "Survey Responses":
             # Export options
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("Export to CSV"):
+                if st.button("ייצא ל-CSV"):
                     csv = df.to_csv(index=False)
                     st.download_button(
-                        "Download CSV",
+                        "הורד CSV",
                         csv,
                         f"{survey_type}_responses.csv",
                         "text/csv"
                     )
             with col2:
-                if st.button("Export to Excel"):
+                if st.button("ייצא ל-Excel"):
                     excel_file = df.to_excel(index=False)
                     st.download_button(
-                        "Download Excel",
+                        "הורד Excel",
                         excel_file,
                         f"{survey_type}_responses.xlsx",
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
         else:
-            st.info("No responses found for this survey type.")
+            st.info("לא נמצאו תגובות לסוג סקר זה.")
             
     except Exception as e:
-        st.error(f"Error loading survey responses: {str(e)}")
+        st.error(f"שגיאה בטעינת תגובות הסקר: {str(e)}")
 
-elif page == "Analytics":
-    st.header("📊 Analytics")
+elif page == "אנליטיקה":
+    st.header("📊 אנליטיקה")
     
     try:
         # Collect all data
         all_data = []
         for survey_name, table_id in SURVEY_TABLE_IDS.items():
-            table = airtable.table(AIRTABLE_BASE_ID, table_id)
-            records = table.all()
-            for record in records:
-                record['fields']['Survey Type'] = survey_name
-                all_data.append(record['fields'])
+            try:
+                table = airtable.table(AIRTABLE_BASE_ID, table_id)
+                records = table.all()
+                for record in records:
+                    record['fields']['סוג סקר'] = survey_name
+                    all_data.append(record['fields'])
+            except Exception as table_error:
+                st.warning(f"שגיאה בטעינת נתונים מטבלה {survey_name}: {str(table_error)}")
+                continue
         
         if all_data:
             df = pd.DataFrame(all_data)
             
             # Survey Distribution
-            st.subheader("Survey Type Distribution")
-            survey_counts = df['Survey Type'].value_counts()
+            st.subheader("התפלגות סוגי סקרים")
+            survey_counts = df['סוג סקר'].value_counts()
             fig = px.pie(values=survey_counts.values, 
                         names=survey_counts.index,
-                        title='Distribution of Survey Types')
+                        title='התפלגות סוגי סקרים')
+            fig.update_layout(direction='rtl')
             st.plotly_chart(fig)
             
             # Status Distribution
-            st.subheader("Survey Status Distribution")
+            st.subheader("התפלגות סטטוס")
             status_counts = df['סטטוס'].value_counts()
             fig = px.bar(x=status_counts.index, 
                         y=status_counts.values,
-                        title='Survey Status Distribution',
-                        labels={'x': 'Status', 'y': 'Count'})
+                        title='התפלגות סטטוס סקרים',
+                        labels={'x': 'סטטוס', 'y': 'כמות'})
+            fig.update_layout(direction='rtl')
             st.plotly_chart(fig)
             
             # Meeting Interest Analysis
             if 'מעוניין לקבוע פגישה' in df.columns:
-                st.subheader("Meeting Interest Analysis")
+                st.subheader("ניתוח העדפות פגישה")
                 meeting_interest = df['מעוניין לקבוע פגישה'].value_counts()
                 fig = px.pie(values=meeting_interest.values,
                             names=meeting_interest.index,
-                            title='Meeting Interest Distribution')
+                            title='התפלגות העדפות פגישה')
+                fig.update_layout(direction='rtl')
                 st.plotly_chart(fig)
             
             # Response Time Analysis
-            st.subheader("Response Time Analysis")
+            st.subheader("ניתוח זמני תגובה")
             df['תאריך מילוי'] = pd.to_datetime(df['תאריך מילוי'])
-            df['Hour'] = df['תאריך מילוי'].dt.hour
-            hourly_responses = df['Hour'].value_counts().sort_index()
+            df['שעה'] = df['תאריך מילוי'].dt.hour
+            hourly_responses = df['שעה'].value_counts().sort_index()
             fig = px.line(x=hourly_responses.index,
                          y=hourly_responses.values,
-                         title='Response Distribution by Hour',
-                         labels={'x': 'Hour of Day', 'y': 'Number of Responses'})
+                         title='התפלגות תגובות לפי שעה',
+                         labels={'x': 'שעה ביום', 'y': 'מספר תגובות'})
+            fig.update_layout(direction='rtl')
             st.plotly_chart(fig)
             
     except Exception as e:
-        st.error(f"Error loading analytics: {str(e)}")
+        st.error(f"שגיאה בטעינת נתוני אנליטיקה: {str(e)}")
 
-elif page == "Bot Settings":
-    st.header("⚙️ Bot Settings")
+elif page == "הגדרות בוט":
+    st.header("⚙️ הגדרות בוט")
     
     # Display current environment variables
-    st.subheader("Environment Variables")
+    st.subheader("משתני סביבה")
     env_vars = {
         "ID_INSTANCE": os.getenv("ID_INSTANCE"),
         "API_TOKEN_INSTANCE": "***" + os.getenv("API_TOKEN_INSTANCE")[-4:] if os.getenv("API_TOKEN_INSTANCE") else None,
@@ -291,46 +336,46 @@ elif page == "Bot Settings":
     st.json(json.dumps(env_vars, indent=2))
     
     # Bot Status and Controls
-    st.subheader("Bot Status and Controls")
+    st.subheader("סטטוס ובקרת בוט")
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("Check Bot Status"):
+        if st.button("בדוק סטטוס בוט"):
             try:
                 response = requests.get("http://localhost:8000/health")
                 if response.status_code == 200:
-                    st.success("Bot is running and healthy! 🟢")
+                    st.success("הבוט פעיל ותקין! 🟢")
                 else:
-                    st.error("Bot is not responding correctly 🔴")
+                    st.error("הבוט אינו מגיב כראוי 🔴")
             except Exception as e:
-                st.error(f"Could not connect to bot: {str(e)}")
+                st.error(f"לא ניתן להתחבר לבוט: {str(e)}")
     
     with col2:
-        if st.button("View Logs"):
+        if st.button("הצג לוגים"):
             try:
                 with open("whatsapp_bot.log", "r", encoding="utf-8") as f:
                     logs = f.readlines()[-50:]  # Last 50 lines
                     st.code("".join(logs))
             except Exception as e:
-                st.error(f"Could not read logs: {str(e)}")
+                st.error(f"לא ניתן לקרוא לוגים: {str(e)}")
     
     # Webhook Configuration
-    st.subheader("Webhook Configuration")
-    webhook_url = st.text_input("Webhook URL", "http://your-domain.com/webhook")
-    if st.button("Update Webhook"):
-        st.info("This feature will be implemented soon")
+    st.subheader("הגדרות Webhook")
+    webhook_url = st.text_input("כתובת Webhook", "http://your-domain.com/webhook")
+    if st.button("עדכן Webhook"):
+        st.info("תכונה זו תהיה זמינה בקרוב")
     
     # System Information
-    st.subheader("System Information")
+    st.subheader("מידע מערכת")
     system_info = {
-        "Python Version": os.sys.version.split()[0],
-        "Operating System": os.name,
-        "Current Directory": os.getcwd(),
-        "Available CPU Cores": os.cpu_count()
+        "גרסת Python": os.sys.version.split()[0],
+        "מערכת הפעלה": os.name,
+        "תיקייה נוכחית": os.getcwd(),
+        "מספר ליבות מעבד זמינות": os.cpu_count()
     }
     st.json(json.dumps(system_info, indent=2))
 
 # Footer
 st.sidebar.markdown("---")
-st.sidebar.markdown("Made with ❤️ by Your Name")
-st.sidebar.markdown(f"Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}") 
+st.sidebar.markdown("נוצר באהבה ❤️")
+st.sidebar.markdown(f"עודכן לאחרונה: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}") 
