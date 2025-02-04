@@ -143,7 +143,17 @@ if page == "סקירה כללית":
             fig = px.line(daily_responses, x='תאריך', y='כמות', 
                          title='תגובות יומיות לסקר',
                          labels={'כמות': 'מספר תגובות', 'תאריך': 'תאריך'})
-            fig.update_layout(direction='rtl')
+            
+            # Fix RTL support for charts
+            fig.update_layout(
+                title_x=0.5,
+                title_xanchor='center',
+                font_family="Arial",
+                font=dict(size=14),
+                title_font=dict(size=20),
+                xaxis=dict(side='bottom', title_standoff=25),
+                yaxis=dict(side='right', title_standoff=25)
+            )
             st.plotly_chart(fig, use_container_width=True)
             
         # Recent Activity
@@ -283,7 +293,13 @@ elif page == "אנליטיקה":
             fig = px.pie(values=survey_counts.values, 
                         names=survey_counts.index,
                         title='התפלגות סוגי סקרים')
-            fig.update_layout(direction='rtl')
+            fig.update_layout(
+                title_x=0.5,
+                title_xanchor='center',
+                font_family="Arial",
+                font=dict(size=14),
+                title_font=dict(size=20)
+            )
             st.plotly_chart(fig)
             
             # Status Distribution
@@ -293,7 +309,15 @@ elif page == "אנליטיקה":
                         y=status_counts.values,
                         title='התפלגות סטטוס סקרים',
                         labels={'x': 'סטטוס', 'y': 'כמות'})
-            fig.update_layout(direction='rtl')
+            fig.update_layout(
+                title_x=0.5,
+                title_xanchor='center',
+                font_family="Arial",
+                font=dict(size=14),
+                title_font=dict(size=20),
+                xaxis=dict(side='bottom', title_standoff=25),
+                yaxis=dict(side='right', title_standoff=25)
+            )
             st.plotly_chart(fig)
             
             # Meeting Interest Analysis
@@ -303,7 +327,13 @@ elif page == "אנליטיקה":
                 fig = px.pie(values=meeting_interest.values,
                             names=meeting_interest.index,
                             title='התפלגות העדפות פגישה')
-                fig.update_layout(direction='rtl')
+                fig.update_layout(
+                    title_x=0.5,
+                    title_xanchor='center',
+                    font_family="Arial",
+                    font=dict(size=14),
+                    title_font=dict(size=20)
+                )
                 st.plotly_chart(fig)
             
             # Response Time Analysis
@@ -315,7 +345,15 @@ elif page == "אנליטיקה":
                          y=hourly_responses.values,
                          title='התפלגות תגובות לפי שעה',
                          labels={'x': 'שעה ביום', 'y': 'מספר תגובות'})
-            fig.update_layout(direction='rtl')
+            fig.update_layout(
+                title_x=0.5,
+                title_xanchor='center',
+                font_family="Arial",
+                font=dict(size=14),
+                title_font=dict(size=20),
+                xaxis=dict(side='bottom', title_standoff=25),
+                yaxis=dict(side='right', title_standoff=25)
+            )
             st.plotly_chart(fig)
             
     except Exception as e:
