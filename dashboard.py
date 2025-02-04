@@ -8,7 +8,24 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import json
 import requests
+import logging
 from collections import Counter
+
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Debug mode flag
+DEBUG_MODE = os.getenv('DEBUG_MODE', 'false').lower() == 'true'
+
+def debug_print(message):
+    """Helper function to print debug messages"""
+    if DEBUG_MODE:
+        st.write(f"🔍 דיבאג: {message}")
+    logger.debug(message)
 
 # Load environment variables
 load_dotenv()
@@ -91,13 +108,13 @@ if page == "סקירה כללית":
         for survey_name, table_id in SURVEY_TABLE_IDS.items():
             try:
                 # Add debug logging
-                st.debug(f"מנסה להתחבר לטבלה {survey_name} עם מזהה {table_id}")
+                debug_print(f"מנסה להתחבר לטבלה {survey_name} עם מזהה {table_id}")
                 table = airtable.table(AIRTABLE_BASE_ID, table_id)
                 
                 # Test connection and permissions
                 try:
                     test_records = table.all()
-                    st.debug(f"התחברות לטבלה {survey_name} הצליחה. מספר רשומות: {len(test_records)}")
+                    debug_print(f"התחברות לטבלה {survey_name} הצליחה. מספר רשומות: {len(test_records)}")
                 except Exception as api_error:
                     error_details = str(api_error)
                     if "INVALID_PERMISSIONS" in error_details:
