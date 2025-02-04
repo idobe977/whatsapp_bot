@@ -57,16 +57,16 @@ async def health_check():
 def run_streamlit():
     """Run the Streamlit dashboard"""
     try:
-        # Check if port 8501 is in use and kill the process if needed
-        if is_port_in_use(8501):
-            logger.info("Port 8501 is in use, attempting to kill existing process")
-            if kill_process_on_port(8501):
-                logger.info("Successfully killed process on port 8501")
+        # Check if port 9999 is in use and kill the process if needed
+        if is_port_in_use(9999):
+            logger.info("Port 9999 is in use, attempting to kill existing process")
+            if kill_process_on_port(9999):
+                logger.info("Successfully killed process on port 9999")
             else:
-                logger.warning("Could not kill process on port 8501")
+                logger.warning("Could not kill process on port 9999")
 
         # Run streamlit directly without importing server
-        os.environ["STREAMLIT_SERVER_PORT"] = "8501"  # Ensure consistent port
+        os.environ["STREAMLIT_SERVER_PORT"] = "9999"  # Ensure consistent port
         subprocess.Popen([sys.executable, "-m", "streamlit", "run", "dashboard.py"],
                         env=dict(os.environ))
     except Exception as e:
