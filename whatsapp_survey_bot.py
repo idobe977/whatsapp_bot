@@ -366,13 +366,8 @@ class WhatsAppSurveyBot:
                 if self.update_record(state["record_id"], update_data, survey):
                     logger.info(f"Saved transcription for question {current_question['id']}")
                     
-                    # Generate and send reflection
-                    reflection = await self.generate_response_reflection(current_question["text"], transcribed_text)
-                    if reflection:
-                        await self.send_message_with_retry(chat_id, reflection)
-                        await asyncio.sleep(1.5)  # Add a small delay before next question
-                    
-                    # Move to next question
+                    # Move to next question without generating reflection here
+                    # (reflection will be generated in process_survey_answer)
                     await self.process_survey_answer(chat_id, {
                         "type": "voice",
                         "content": transcribed_text,
@@ -406,6 +401,8 @@ class WhatsAppSurveyBot:
             2. השתמש בשפה חיובית ומעריכה
             3. הימנע מלחזור על התשובה מילה במילה
             4. אל תוסיף מידע חדש
+            5. הוסף אימוגי אם מתאים
+            6. אתה עונה בשמי, ואני גבר. לכן, תענה כאילו אתה גבר
             """
             
             response = model.generate_content(prompt)
@@ -627,50 +624,45 @@ class WhatsAppSurveyBot:
             question_id = current_question["id"]
             logger.info(f"Current question: {question_id}")
             
-            try:
-                # Save answer to state
-                state["answers"][question_id] = answer["content"]
-                logger.debug(f"Updated state answers: {json.dumps(state['answers'], ensure_ascii=False)}")
-                
-                # Generate and send reflection before updating Airtable
-                reflection = await self.generate_response_reflection(current_question["text"], answer["content"])
-                if reflection:
-                    await self.send_message_with_retry(chat_id, reflection)
-                    await asyncio.sleep(1.5)  # Add a small delay after reflection
-                
-                # Prepare Airtable update
-                update_data = {
-                    question_id: answer["content"]
-                }
+            # Save answer to state
+            state["answers"][question_id] = answer["content"]
+            logger.debug(f"Updated state answers: {json.dumps(state['answers'], ensure_ascii=False)}")
+            
+            # Generate and send reflection for all message types
+            reflection = await self.generate_response_reflection(current_question["text"], answer["content"])
+            if reflection:
+                await self.send_message_with_retry(chat_id, reflection)
+                await asyncio.sleep(1.5)  # Add a small delay after reflection
+            
+            # Prepare Airtable update
+            update_data = {
+                question_id: answer["content"]
+            }
 
-                # Update status to "בטיפול" when answering questions
-                if state["current_question"] > 0:  # Not the first question
-                    update_data["סטטוס"] = "בטיפול"
+            # Update status to "בטיפול" when answering questions
+            if state["current_question"] > 0:  # Not the first question
+                update_data["סטטוס"] = "בטיפול"
+            
+            logger.info(f"Updating Airtable record {state['record_id']}")
+            logger.debug(f"Update data: {json.dumps(update_data, ensure_ascii=False)}")
+            
+            if self.update_record(state["record_id"], update_data, survey):
+                logger.info(f"Successfully updated record for question {question_id}")
                 
-                logger.info(f"Updating Airtable record {state['record_id']}")
-                logger.debug(f"Update data: {json.dumps(update_data, ensure_ascii=False)}")
-                
-                if self.update_record(state["record_id"], update_data, survey):
-                    logger.info(f"Successfully updated record for question {question_id}")
+                if answer.get("is_final", True):
+                    state["current_question"] += 1
+                    state.pop("selected_options", None)
+                    state.pop("last_poll_response", None)
+                    logger.info(f"Moving to next question (index: {state['current_question']})")
                     
-                    if answer.get("is_final", True):
-                        state["current_question"] += 1
-                        state.pop("selected_options", None)
-                        state.pop("last_poll_response", None)
-                        logger.info(f"Moving to next question (index: {state['current_question']})")
-                        
-                        # If this was the last question, update status to "הושלם"
-                        if state["current_question"] >= len(survey.questions):
-                            self.update_record(state["record_id"], {"סטטוס": "הושלם"}, survey)
-                        
-                        await self.send_next_question(chat_id)
-                else:
-                    logger.error(f"Failed to update record for question {question_id}")
-                    await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בשמירת התשובה. נא לנסות שוב.")
-            except Exception as inner_e:
-                logger.error(f"Error in inner try block: {str(inner_e)}")
-                logger.error(f"Stack trace: {traceback.format_exc()}")
-                await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד התשובה. נא לנסות שוב.")
+                    # If this was the last question, update status to "הושלם"
+                    if state["current_question"] >= len(survey.questions):
+                        self.update_record(state["record_id"], {"סטטוס": "הושלם"}, survey)
+                    
+                    await self.send_next_question(chat_id)
+            else:
+                logger.error(f"Failed to update record for question {question_id}")
+                await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בשמירת התשובה. נא לנסות שוב.")
                 
         except Exception as e:
             logger.error(f"Error processing answer: {str(e)}")
@@ -905,136 +897,6 @@ class WhatsAppSurveyBot:
                     return
         else:
             await self.finish_survey(chat_id)
-
-async def generate_response_reflection(question, answer):
-    """Generate a reflective response based on the user's answer."""
-    try:
-        prompt = f"""
-        בהתבסס על התשובה של המשתמש לשאלה, צור תגובה קצרה ואמפתית שמשקפת את מה שהוא אמר.
-        השתמש בטון חם ואנושי. התגובה צריכה להיות קצרה (1-2 משפטים).
-        
-        שאלה: {question}
-        תשובה: {answer}
-        
-        הנחיות:
-        1. שקף את התוכן העיקרי של התשובה
-        2. השתמש בשפה חיובית ומעריכה
-        3. הימנע מלחזור על התשובה מילה במילה
-        4. אל תוסיף מידע חדש
-        """
-        
-        response = await genai.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        logger.error(f"Error generating reflection: {str(e)}")
-        return None
-
-async def handle_survey_response(chat_id, message):
-    """Handle survey responses and generate appropriate reflections."""
-    try:
-        state = get_state(chat_id)
-        if not state:
-            logger.warning(f"No state found for chat_id {chat_id}")
-            return
-        
-        current_question = state.get('current_question')
-        if not current_question:
-            return
-        
-        # Save the response
-        save_response(chat_id, current_question, message)
-        
-        # Generate reflection
-        reflection = await generate_response_reflection(current_question, message)
-        if reflection:
-            # Send the reflection
-            await send_message(chat_id, reflection)
-            # Add a small delay before next question
-            await asyncio.sleep(1.5)
-        
-        # Get next question
-        next_question = get_next_question(state)
-        if next_question:
-            state['current_question'] = next_question
-            update_state(chat_id, state)
-            await send_message(chat_id, next_question)
-        else:
-            await finish_survey(chat_id)
-            
-    except Exception as e:
-        logger.error(f"Error in handle_survey_response: {str(e)}")
-        await send_message(chat_id, "מצטער, נתקלתי בבעיה בעיבוד התשובה שלך. אנא נסה שוב.")
-
-def get_next_question(state):
-    """Get the next question based on the survey type and current progress."""
-    survey_type = state.get('survey_type')
-    current_question = state.get('current_question')
-    
-    if survey_type == "business_survey":
-        questions = [
-            "מה שם העסק שלך?",
-            "באיזה תחום העסק שלך פועל?",
-            "מה האתגר העיקרי שאתה מתמודד איתו כרגע בעסק?",
-            "מה המטרה העיקרית שלך לשנה הקרובה?",
-            "איך שמעת עלינו?"
-        ]
-    elif survey_type == "research_survey":
-        questions = [
-            "מה התחום שבו אתה עורך את המחקר?",
-            "מה השאלה המרכזית של המחקר שלך?",
-            "באיזה שלב המחקר נמצא כרגע?",
-            "מה האתגר העיקרי שאתה מתמודד איתו במחקר?",
-            "איזה סוג עזרה אתה מחפש?"
-        ]
-    elif survey_type == "satisfaction_survey":
-        questions = [
-            "איך היית מדרג את השירות שקיבלת? (1-10)",
-            "מה הדבר שהכי אהבת בשירות?",
-            "מה לדעתך אפשר לשפר?",
-            "האם תמליץ עלינו לאחרים? למה?",
-            "יש לך הצעות נוספות לשיפור?"
-        ]
-    else:
-        return None
-    
-    try:
-        current_index = questions.index(current_question)
-        if current_index + 1 < len(questions):
-            return questions[current_index + 1]
-    except ValueError:
-        return questions[0]
-    
-    return None
-
-def save_response(chat_id, question, answer):
-    """Save the response to Airtable."""
-    try:
-        state = get_state(chat_id)
-        if not state:
-            return
-        
-        survey_type = state.get('survey_type')
-        table_id = get_table_id_for_survey_type(survey_type)
-        
-        if not table_id:
-            logger.error(f"No table ID found for survey type: {survey_type}")
-            return
-            
-        # Get existing record or create new one
-        record = get_or_create_survey_record(chat_id, table_id)
-        
-        # Update the record with the new response
-        fields = record.get('fields', {})
-        fields[question] = answer
-        fields['סטטוס'] = 'בטיפול'
-        fields['תאריך עדכון'] = datetime.now().isoformat()
-        
-        # Update record in Airtable
-        table = airtable.table(AIRTABLE_BASE_ID, table_id)
-        table.update(record['id'], fields)
-        
-    except Exception as e:
-        logger.error(f"Error saving response: {str(e)}")
 
 # Initialize the bot
 logger.info("Initializing WhatsApp Survey Bot...")
