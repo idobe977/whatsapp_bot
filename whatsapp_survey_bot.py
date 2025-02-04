@@ -365,7 +365,14 @@ class WhatsAppSurveyBot:
             try:
                 if self.update_record(state["record_id"], update_data, survey):
                     logger.info(f"Saved transcription for question {current_question['id']}")
-                    # Move to next question immediately
+                    
+                    # Generate and send reflection
+                    reflection = await self.generate_response_reflection(current_question["text"], transcribed_text)
+                    if reflection:
+                        await self.send_message_with_retry(chat_id, reflection)
+                        await asyncio.sleep(1.5)  # Add a small delay before next question
+                    
+                    # Move to next question
                     await self.process_survey_answer(chat_id, {
                         "type": "voice",
                         "content": transcribed_text,
@@ -383,6 +390,29 @@ class WhatsAppSurveyBot:
             logger.error(f"Error handling voice message: {str(e)}")
             logger.error(f"Stack trace: {traceback.format_exc()}")
             await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד ההודעה הקולית. נא לנסות שוב.")
+
+    async def generate_response_reflection(self, question: str, answer: str) -> Optional[str]:
+        """Generate a reflective response based on the user's answer"""
+        try:
+            prompt = f"""
+            בהתבסס על התשובה של המשתמש לשאלה, צור תגובה קצרה ואמפתית שמשקפת את מה שהוא אמר.
+            השתמש בטון חם ואנושי. התגובה צריכה להיות קצרה (1-2 משפטים).
+            
+            שאלה: {question}
+            תשובה: {answer}
+            
+            הנחיות:
+            1. שקף את התוכן העיקרי של התשובה
+            2. השתמש בשפה חיובית ומעריכה
+            3. הימנע מלחזור על התשובה מילה במילה
+            4. אל תוסיף מידע חדש
+            """
+            
+            response = model.generate_content(prompt)
+            return response.text.strip()
+        except Exception as e:
+            logger.error(f"Error generating reflection: {str(e)}")
+            return None
 
     async def handle_transcription_summary(self, chat_id: str, summary: str) -> None:
         """Handle incoming transcription summary from the other bot"""
@@ -597,39 +627,50 @@ class WhatsAppSurveyBot:
             question_id = current_question["id"]
             logger.info(f"Current question: {question_id}")
             
-            # Save answer to state
-            state["answers"][question_id] = answer["content"]
-            logger.debug(f"Updated state answers: {json.dumps(state['answers'], ensure_ascii=False)}")
-            
-            # Prepare Airtable update
-            update_data = {
-                question_id: answer["content"]
-            }
-
-            # Update status to "בטיפול" when answering questions
-            if state["current_question"] > 0:  # Not the first question
-                update_data["סטטוס"] = "בטיפול"
-            
-            logger.info(f"Updating Airtable record {state['record_id']}")
-            logger.debug(f"Update data: {json.dumps(update_data, ensure_ascii=False)}")
-            
-            if self.update_record(state["record_id"], update_data, survey):
-                logger.info(f"Successfully updated record for question {question_id}")
+            try:
+                # Save answer to state
+                state["answers"][question_id] = answer["content"]
+                logger.debug(f"Updated state answers: {json.dumps(state['answers'], ensure_ascii=False)}")
                 
-                if answer.get("is_final", True):
-                    state["current_question"] += 1
-                    state.pop("selected_options", None)
-                    state.pop("last_poll_response", None)
-                    logger.info(f"Moving to next question (index: {state['current_question']})")
+                # Generate and send reflection before updating Airtable
+                reflection = await self.generate_response_reflection(current_question["text"], answer["content"])
+                if reflection:
+                    await self.send_message_with_retry(chat_id, reflection)
+                    await asyncio.sleep(1.5)  # Add a small delay after reflection
+                
+                # Prepare Airtable update
+                update_data = {
+                    question_id: answer["content"]
+                }
+
+                # Update status to "בטיפול" when answering questions
+                if state["current_question"] > 0:  # Not the first question
+                    update_data["סטטוס"] = "בטיפול"
+                
+                logger.info(f"Updating Airtable record {state['record_id']}")
+                logger.debug(f"Update data: {json.dumps(update_data, ensure_ascii=False)}")
+                
+                if self.update_record(state["record_id"], update_data, survey):
+                    logger.info(f"Successfully updated record for question {question_id}")
                     
-                    # If this was the last question, update status to "הושלם"
-                    if state["current_question"] >= len(survey.questions):
-                        self.update_record(state["record_id"], {"סטטוס": "הושלם"}, survey)
-                    
-                    await self.send_next_question(chat_id)
-            else:
-                logger.error(f"Failed to update record for question {question_id}")
-                await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בשמירת התשובה. נא לנסות שוב.")
+                    if answer.get("is_final", True):
+                        state["current_question"] += 1
+                        state.pop("selected_options", None)
+                        state.pop("last_poll_response", None)
+                        logger.info(f"Moving to next question (index: {state['current_question']})")
+                        
+                        # If this was the last question, update status to "הושלם"
+                        if state["current_question"] >= len(survey.questions):
+                            self.update_record(state["record_id"], {"סטטוס": "הושלם"}, survey)
+                        
+                        await self.send_next_question(chat_id)
+                else:
+                    logger.error(f"Failed to update record for question {question_id}")
+                    await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בשמירת התשובה. נא לנסות שוב.")
+            except Exception as inner_e:
+                logger.error(f"Error in inner try block: {str(inner_e)}")
+                logger.error(f"Stack trace: {traceback.format_exc()}")
+                await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד התשובה. נא לנסות שוב.")
                 
         except Exception as e:
             logger.error(f"Error processing answer: {str(e)}")
