@@ -36,34 +36,21 @@ async def health_check():
 def run_streamlit():
     """Run the Streamlit dashboard"""
     try:
-        # Set an environment variable to indicate this is a dashboard-only process
-        os.environ["RUNNING_DASHBOARD"] = "1"
-        subprocess.run([sys.executable, "-m", "streamlit", "run", "dashboard.py"], check=True)
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Error running Streamlit: {e}")
+        # Run streamlit directly without importing server
+        os.environ["STREAMLIT_SERVER_PORT"] = "8501"  # Ensure consistent port
+        subprocess.Popen([sys.executable, "-m", "streamlit", "run", "dashboard.py"],
+                        env=dict(os.environ))
     except Exception as e:
-        logger.error(f"Unexpected error running Streamlit: {e}")
+        logger.error(f"Error starting Streamlit: {e}")
 
-def run_server():
-    """Run the FastAPI server"""
+def main():
+    """Main function to run both services"""
+    # Start Streamlit in background
+    run_streamlit()
+    logger.info("Started Streamlit dashboard")
+    
+    # Run the FastAPI server
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
 if __name__ == "__main__":
-    # Check if we're running the dashboard
-    if os.environ.get("RUNNING_DASHBOARD"):
-        # If this is a dashboard process, don't start anything else
-        sys.exit(0)
-    
-    # Start Streamlit in a separate process
-    streamlit_process = multiprocessing.Process(target=run_streamlit)
-    streamlit_process.start()
-    logger.info("Started Streamlit dashboard")
-    
-    try:
-        # Run the FastAPI server in the main process
-        run_server()
-    finally:
-        # Cleanup when the FastAPI server stops
-        streamlit_process.terminate()
-        streamlit_process.join()
-        logger.info("Stopped Streamlit dashboard") 
+    main() 
