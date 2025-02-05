@@ -844,8 +844,17 @@ class WhatsAppSurveyBot:
 
     async def cleanup(self):
         """Cleanup resources"""
-        if self.session and not self.session.closed:
-            await self.session.close()
+        try:
+            if self.session and not self.session.closed:
+                await self.session.close()
+            if self.cleanup_task:
+                self.cleanup_task.cancel()
+                try:
+                    await self.cleanup_task
+                except asyncio.CancelledError:
+                    pass
+        except Exception as e:
+            logger.error(f"Error during cleanup: {str(e)}")
 
     def get_cached_airtable_record(self, record_id: str, table_id: str) -> Optional[Dict]:
         """Get record from cache if available and not expired"""
@@ -925,17 +934,15 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Cancel the cleanup task when the application shuts down"""
-    if bot.cleanup_task:
-        bot.cleanup_task.cancel()
-        try:
-            await bot.cleanup_task
-        except asyncio.CancelledError:
-            pass
+    """Cleanup resources when the application shuts down"""
+    logger.info("Application shutting down, cleaning up resources...")
+    await bot.cleanup()
+    logger.info("Cleanup completed")
 
 # Webhook handler function
 async def handle_webhook(webhook_data: Dict) -> None:
     """Handle incoming webhook data"""
+    session = None
     try:
         logger.info("Received new webhook")
         logger.debug(f"Webhook data: {json.dumps(webhook_data, ensure_ascii=False)}")
@@ -971,4 +978,7 @@ async def handle_webhook(webhook_data: Dict) -> None:
     except Exception as e:
         logger.error(f"Error handling webhook: {str(e)}")
         logger.error(f"Stack trace: {traceback.format_exc()}")
-        raise 
+        raise
+    finally:
+        if session and not session.closed:
+            await session.close() 
