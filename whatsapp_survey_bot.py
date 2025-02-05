@@ -80,7 +80,6 @@ logger.info(f"Loaded survey table IDs: {list(SURVEY_TABLE_IDS.keys())}")
 class WhatsAppSurveyBot:
     def __init__(self):
         self.survey_state = {}
-        self.waiting_for_transcription = {}
         self.MAX_RETRIES = 3
         self.RETRY_DELAY = 2  # seconds
         self.SURVEY_TIMEOUT = 30  # minutes
@@ -96,11 +95,6 @@ class WhatsAppSurveyBot:
         # Initialize aiohttp session for reuse
         self.session = None
         
-        # Pre-compile regex patterns
-        self.url_pattern = re.compile(r'https?://\S+')
-        
-        # Initialize concurrent tasks tracking
-        self.concurrent_tasks = set()
         
         # Validate all survey definitions
         for survey in AVAILABLE_SURVEYS:
@@ -146,12 +140,25 @@ class WhatsAppSurveyBot:
         # Create the cleanup task
         self.cleanup_task = asyncio.create_task(cleanup_loop())
 
-    async def get_aiohttp_session(self):
-        """Get or create aiohttp session"""
-        if self.session is None or self.session.closed:
-            self.session = aiohttp.ClientSession()
-        return self.session
-
+async def get_aiohttp_session(self):
+    """Get or create aiohttp session with optimal settings"""
+    if self.session is None or self.session.closed:
+        timeout = aiohttp.ClientTimeout(
+            total=10,        # Total timeout
+            connect=2,       # Connection timeout
+            sock_read=5      # Socket read timeout
+        )
+        connector = aiohttp.TCPConnector(
+            limit=100,           # Max concurrent connections
+            ttl_dns_cache=300,   # DNS cache TTL (5 minutes)
+            force_close=False    # Keep-alive connections
+        )
+        self.session = aiohttp.ClientSession(
+            timeout=timeout,
+            connector=connector,
+            headers={'Connection': 'keep-alive'}
+        )
+    return self.session
     async def send_message_with_retry(self, chat_id: str, message: str) -> Dict:
         """Send a message with retry mechanism using aiohttp"""
         retries = 0
@@ -194,14 +201,6 @@ class WhatsAppSurveyBot:
                 return survey
         return None
 
-    def get_answer_type_for_airtable(self, answer_type: str) -> str:
-        """Convert internal answer type to Airtable single select value"""
-        type_mapping = {
-            "text": "טקסט",
-            "voice": "הקלטה",
-            "poll": "סקר"
-        }
-        return type_mapping.get(answer_type, "טקסט")
 
     def get_existing_record_id(self, chat_id: str, survey: SurveyDefinition) -> Optional[str]:
         """Get existing record ID for a chat_id"""
@@ -248,29 +247,29 @@ class WhatsAppSurveyBot:
             logger.error(f"Error updating record: {e}")
             return False
 
-    def send_message(self, chat_id: str, message: str) -> Dict:
-        """Send a message to a WhatsApp user"""
-        try:
-            logger.info(f"Sending WhatsApp message to {chat_id}")
-            logger.debug(f"Message content: {message[:100]}...")  # Log first 100 chars
+    # def send_message(self, chat_id: str, message: str) -> Dict:
+    #     """Send a message to a WhatsApp user"""
+    #     try:
+    #         logger.info(f"Sending WhatsApp message to {chat_id}")
+    #         logger.debug(f"Message content: {message[:100]}...")  # Log first 100 chars
             
-            url = f"{GREEN_API_BASE_URL}/sendMessage/{API_TOKEN_INSTANCE}"
-            payload = {
-                "chatId": chat_id,
-                "message": message
-            }
-            response = requests.post(url, json=payload)
-            response.raise_for_status()
+    #         url = f"{GREEN_API_BASE_URL}/sendMessage/{API_TOKEN_INSTANCE}"
+    #         payload = {
+    #             "chatId": chat_id,
+    #             "message": message
+    #         }
+    #         response = requests.post(url, json=payload)
+    #         response.raise_for_status()
             
-            response_data = response.json()
-            logger.info(f"Message sent successfully to {chat_id}")
-            logger.debug(f"Green API response: {response_data}")
-            return response_data
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to send WhatsApp message to {chat_id}: {str(e)}")
-            logger.error(f"Response status code: {getattr(e.response, 'status_code', 'N/A')}")
-            logger.error(f"Response content: {getattr(e.response, 'text', 'N/A')}")
-            return {"error": str(e)}
+    #         response_data = response.json()
+    #         logger.info(f"Message sent successfully to {chat_id}")
+    #         logger.debug(f"Green API response: {response_data}")
+    #         return response_data
+    #     except requests.exceptions.RequestException as e:
+    #         logger.error(f"Failed to send WhatsApp message to {chat_id}: {str(e)}")
+    #         logger.error(f"Response status code: {getattr(e.response, 'status_code', 'N/A')}")
+    #         logger.error(f"Response content: {getattr(e.response, 'text', 'N/A')}")
+    #         return {"error": str(e)}
 
     async def send_poll(self, chat_id: str, question: Dict) -> Dict:
         """Send a poll message to WhatsApp user"""
@@ -358,14 +357,6 @@ class WhatsAppSurveyBot:
             logger.error(f"Stack trace: {traceback.format_exc()}")
             return "שגיאה בתהליך התמלול"
 
-    def get_audio_duration(self, audio_path: str) -> Optional[float]:
-        """Get duration of audio file in seconds"""
-        try:
-            audio = OggOpus(audio_path)
-            return audio.info.length
-        except Exception as e:
-            logger.error(f"Error getting audio duration: {str(e)}")
-            return None
 
     async def handle_voice_message(self, chat_id: str, voice_url: str) -> None:
         """Handle incoming voice messages"""
@@ -457,81 +448,7 @@ class WhatsAppSurveyBot:
             logger.error(f"Error generating reflection: {str(e)}")
             return None
 
-    async def handle_transcription_summary(self, chat_id: str, summary: str) -> None:
-        """Handle incoming transcription summary from the other bot"""
-        logger.info(f"Received transcription summary for chat_id: {chat_id}")
-        logger.debug(f"Summary content: {summary[:100]}...")  # Log first 100 chars
 
-        if chat_id not in self.waiting_for_transcription:
-            logger.warning(f"Received transcription summary for {chat_id} but not waiting for one")
-            return
-
-        if chat_id not in self.survey_state:
-            logger.warning(f"Received transcription summary for {chat_id} but user is no longer in survey")
-            self.waiting_for_transcription.pop(chat_id)
-            return
-
-        waiting_info = self.waiting_for_transcription.pop(chat_id)
-        
-        # Check if the summary is coming within reasonable time (2 minutes)
-        if datetime.now() - waiting_info["timestamp"] > timedelta(minutes=2):
-            logger.warning(f"Received transcription summary for {chat_id} but it's too old")
-            await self.send_message_with_retry(chat_id, "התמלול לקח יותר מדי זמן. נא לשלוח את ההקלטה שוב.")
-            return
-
-        # Validate summary
-        if not summary or len(summary.strip()) < 10:
-            logger.warning(f"Received invalid or too short summary for {chat_id}")
-            await self.send_message_with_retry(chat_id, "התמלול שהתקבל אינו תקין. נא לשלוח את ההקלטה שוב.")
-            return
-
-        # Continue to next question
-        logger.info(f"Continuing survey after receiving transcription for {chat_id}")
-        state = self.survey_state[chat_id]
-        state["current_question"] += 1
-        await self.send_next_question(chat_id)
-
-    def clean_old_transcription_states(self) -> None:
-        """Clean up old transcription states"""
-        current_time = datetime.now()
-        to_remove = []
-        
-        for chat_id, info in self.waiting_for_transcription.items():
-            if current_time - info["timestamp"] > timedelta(minutes=2):
-                to_remove.append(chat_id)
-                
-        for chat_id in to_remove:
-            info = self.waiting_for_transcription.pop(chat_id)
-            logger.info(f"Cleaned up old transcription state for {chat_id}")
-            if chat_id in self.survey_state:
-                self.send_message(chat_id, "התמלול לקח יותר מדי זמן. נא לשלוח את ההקלטה שוב.")
-
-    def extract_transcription_content(self, message: str) -> Optional[str]:
-        """Extract the actual content from the transcription message"""
-        try:
-            if "🤖 עיבוד אוטומטי של הודעה קולית:" in message:
-                # Try to get the summary first
-                if "📌 סיכום:" in message:
-                    summary_start = message.find("📌 סיכום:")
-                    summary_end = len(message)
-                    summary = message[summary_start:summary_end].replace("📌 סיכום:", "").strip()
-                    if summary:
-                        return summary
-                
-                # If no summary or empty, get the transcription
-                if "📝 תמלול:" in message:
-                    transcription_start = message.find("📝 תמלול:")
-                    summary_start = message.find("📌 סיכום:")
-                    if summary_start > -1:
-                        transcription = message[transcription_start:summary_start]
-                    else:
-                        transcription = message[transcription_start:]
-                    return transcription.replace("📝 תמלול:", "").strip()
-            
-            return message
-        except Exception as e:
-            logger.error(f"Error extracting transcription content: {e}")
-            return message
 
     async def handle_text_message(self, chat_id: str, message: str, sender_name: str = "") -> None:
         """Handle incoming text messages"""
@@ -653,66 +570,59 @@ class WhatsAppSurveyBot:
         else:
             logger.warning(f"No valid options selected for chat_id: {chat_id}")
 
-    async def process_survey_answer(self, chat_id: str, answer: Dict[str, str]) -> None:
-        """Process a survey answer and update Airtable record"""
-        try:
-            logger.info(f"Processing survey answer for chat_id: {chat_id}")
-            
-            state = self.survey_state.get(chat_id)
-            if not state or "record_id" not in state:
-                logger.error(f"No valid state found for chat_id: {chat_id}")
-                return
+async def process_survey_answer(self, chat_id: str, answer: Dict[str, str]) -> None:
+    try:
+        logger.info(f"Processing survey answer for chat_id: {chat_id}")
+        
+        state = self.survey_state.get(chat_id)
+        if not state or "record_id" not in state:
+            logger.error(f"No valid state found for chat_id: {chat_id}")
+            return
 
-            state['last_activity'] = datetime.now()
-            survey = state["survey"]
-            current_question = survey.questions[state["current_question"]]
-            question_id = current_question["id"]
+        state['last_activity'] = datetime.now()
+        current_question = state["survey"].questions[state["current_question"]]
+        question_id = current_question["id"]
+        
+        # Save answer to state
+        if "answers" not in state:
+            state["answers"] = {}
+        state["answers"][question_id] = answer["content"]
+        logger.debug(f"Updated state answers: {json.dumps(state['answers'], ensure_ascii=False)}")
+        
+        # Prepare Airtable update data
+        update_data = {question_id: answer["content"]}
+        if state["current_question"] > 0:
+            update_data["סטטוס"] = "בטיפול"
             
-            # Create tasks for parallel execution
-            reflection_task = asyncio.create_task(
-                self.generate_response_reflection(current_question["text"], answer["content"])
-            )
+        # Run tasks concurrently
+        tasks = [
+            self.generate_response_reflection(current_question["text"], answer["content"]),
+            self.update_airtable_record(state["record_id"], update_data, state["survey"])
+        ]
+        reflection, airtable_success = await asyncio.gather(*tasks)
+        
+        if reflection:
+            await self.send_message_with_retry(chat_id, reflection)
+            await asyncio.sleep(1.5)
             
-            # Prepare Airtable update
-            update_data = {
-                question_id: answer["content"]
-            }
-            if state["current_question"] > 0:
-                update_data["סטטוס"] = "בטיפול"
+        if airtable_success and answer.get("is_final", True):
+            state["current_question"] += 1
+            state.pop("selected_options", None)
+            state.pop("last_poll_response", None)
             
-            # Update Airtable in parallel with reflection generation
-            airtable_task = asyncio.create_task(
-                self.update_airtable_record(state["record_id"], update_data, survey)
-            )
+            if state["current_question"] >= len(state["survey"].questions):
+                asyncio.create_task(
+                    self.update_airtable_record(state["record_id"], {"סטטוס": "הושלם"}, state["survey"])
+                )
             
-            # Wait for reflection and send it
-            reflection = await reflection_task
-            if reflection:
-                await self.send_message_with_retry(chat_id, reflection)
-                await asyncio.sleep(1.5)
-            
-            # Wait for Airtable update
-            airtable_success = await airtable_task
-            
-            if airtable_success and answer.get("is_final", True):
-                state["current_question"] += 1
-                state.pop("selected_options", None)
-                state.pop("last_poll_response", None)
-                
-                if state["current_question"] >= len(survey.questions):
-                    asyncio.create_task(
-                        self.update_airtable_record(state["record_id"], {"סטטוס": "הושלם"}, survey)
-                    )
-                
-                await self.send_next_question(chat_id)
-            elif not airtable_success:
-                await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בשמירת התשובה. נא לנסות שוב.")
-                
-        except Exception as e:
-            logger.error(f"Error processing answer: {str(e)}")
-            logger.error(f"Stack trace: {traceback.format_exc()}")
+            await self.send_next_question(chat_id)
+        elif not airtable_success:
             await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בשמירת התשובה. נא לנסות שוב.")
-
+            
+    except Exception as e:
+        logger.error(f"Error processing answer: {str(e)}")
+        logger.error(f"Stack trace: {traceback.format_exc()}")
+        await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בשמירת התשובה. נא לנסות שוב.")
     async def schedule_next_question(self, chat_id: str, delay_seconds: int) -> None:
         """Schedule moving to the next question after a delay"""
         await asyncio.sleep(delay_seconds)
@@ -732,20 +642,31 @@ class WhatsAppSurveyBot:
     def generate_summary(self, answers: Dict[str, str]) -> str:
         """Generate a summary of the survey answers using the language model"""
         try:
+            if not answers:
+                return "לא נמצאו תשובות לסיכום."
+                
             prompt = """
-            בהתבסס על התשובות הבאות, אנא צור סיכום תמציתי בעברית:
+            בהתבסס על התשובות הבאות לשאלון האפיון, אנא צור סיכום תמציתי בעברית:
+
             {}
 
-            הסיכום צריך להיות:
-            1. קצר ותמציתי
-            2. מדגיש את הנקודות העיקריות
-            3. כתוב בשפה מקצועית אך ידידותית
-            4. בעל נראות טובה, ואם מתאים, מכיל אימוגים
-            אני רוצה שהפלט שלך יתחיל ישר מהסיכום ללא הקדמות.
-            """.format(json.dumps(answers, ensure_ascii=False))
+            הנחיות ליצירת הסיכום:
+            1. התחל עם משפט פתיחה קצר המציג את העסק
+            2. סכם את הנקודות העיקריות בצורה ברורה ומאורגנת
+            3. השתמש באימוג'ים מתאימים להדגשת נקודות חשובות
+            4. שמור על טון מקצועי אך ידידותי
+            5. אני רוצה שהסיכום יהיה בצורת פסקאות ולא בצורת נקודות
+            6. אני רוצה שהפלט שלך יתחיל ישר מהסיכום ללא הקדמות.
+            """.format("\n".join([f"שאלה: {q}\nתשובה: {a}" for q, a in answers.items()]))
             
             response = model.generate_content([prompt])
-            return response.text
+            summary = response.text.strip()
+            
+            if not summary:
+                return "לא הצלחנו ליצור סיכום כרגע."
+                
+            return summary
+            
         except Exception as e:
             logger.error(f"Error generating summary: {e}")
             return "לא הצלחנו ליצור סיכום כרגע."
@@ -762,9 +683,17 @@ class WhatsAppSurveyBot:
             survey = state["survey"]
             logger.info(f"Survey type: {survey.name}")
             
+            # Get all answers from state
+            answers = {}
+            for question in survey.questions:
+                question_id = question["id"]
+                if question_id in state.get("answers", {}):
+                    answers[question["text"]] = state["answers"][question_id]
+            
             # Generate and send summary
             logger.info("Generating summary")
-            summary = self.generate_summary(state["answers"])
+            logger.debug(f"Answers for summary: {json.dumps(answers, ensure_ascii=False)}")
+            summary = self.generate_summary(answers)
             logger.debug(f"Generated summary: {summary[:100]}...")  # Log first 100 chars
             
             logger.info("Sending summary")
