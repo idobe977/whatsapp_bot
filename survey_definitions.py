@@ -2,12 +2,39 @@ from typing import Dict, List
 import os
 
 class SurveyDefinition:
-    def __init__(self, name: str, trigger_phrases: List[str], airtable_table_id: str, questions: List[Dict], airtable_base_id: str = None):
+    def __init__(self, name: str, trigger_phrases: List[str], airtable_table_id: str, questions: List[Dict], 
+                 airtable_base_id: str = None, messages: Dict = None, ai_prompts: Dict = None):
         self.name = name
         self.trigger_phrases = trigger_phrases
         self.airtable_table_id = airtable_table_id
         self.airtable_base_id = airtable_base_id or os.getenv("AIRTABLE_BASE_ID")
         self.questions = questions
+        self.messages = messages or {
+            "welcome": "ברוכים הבאים לשאלון!",
+            "completion": {
+                "text": "תודה רבה על מילוי השאלון!",
+                "should_generate_summary": True
+            },
+            "timeout": "השאלון בוטל עקב חוסר פעילות. אנא התחל מחדש.",
+            "error": "מצטערים, הייתה שגיאה בעיבוד התשובה. נא לנסות שוב."
+        }
+        self.ai_prompts = ai_prompts or {
+            "reflections": {
+                "empathetic": {
+                    "name": "תגובה אמפתית",
+                    "prompt": "צור תגובה אמפתית וחמה"
+                },
+                "professional": {
+                    "name": "תגובה מקצועית",
+                    "prompt": "צור תגובה מקצועית ותכליתית"
+                }
+            },
+            "summary": {
+                "prompt": "צור סיכום מקיף של כל התשובות בשאלון",
+                "max_length": 500,
+                "include_recommendations": True
+            }
+        }
 
 # שאלון מחקר שוק
 RESEARCH_SURVEY = SurveyDefinition(
