@@ -1,10 +1,13 @@
 {
-  "name": "new_survey",
+  "name": "template_survey",
   "trigger_phrases": [
     "התחל שאלון חדש",
     "שאלון חדש"
   ],
-  "airtable_table_id": "tblQhst5DrUZ3d9q4",
+  "airtable": {
+    "table_id": "tblQhst5DrUZ3d9q4",
+    "base_id": "appjvjnGLFopOf75b"
+  },
   "questions": [
     {
       "id": "שם_מלא",
