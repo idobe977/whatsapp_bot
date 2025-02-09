@@ -1,10 +1,12 @@
 from typing import Dict, List
+import os
 
 class SurveyDefinition:
-    def __init__(self, name: str, trigger_phrases: List[str], airtable_table_id: str, questions: List[Dict]):
+    def __init__(self, name: str, trigger_phrases: List[str], airtable_table_id: str, questions: List[Dict], airtable_base_id: str = None):
         self.name = name
         self.trigger_phrases = trigger_phrases
         self.airtable_table_id = airtable_table_id
+        self.airtable_base_id = airtable_base_id or os.getenv("AIRTABLE_BASE_ID")
         self.questions = questions
 
 # שאלון מחקר שוק
@@ -18,7 +20,7 @@ RESEARCH_SURVEY = SurveyDefinition(
         "מחקר עסקי",
         "שאלון לעסקים"
     ],
-    airtable_table_id="tblho5wUHcU8bGJWU",  # יש להחליף למזהה הנכון
+    airtable_table_id="YOUR_RESEARCH_SURVEY_TABLE_ID",  # יש להחליף למזהה הנכון
     questions=[
         {
             "id": "שם מלא",
@@ -52,7 +54,7 @@ RESEARCH_SURVEY = SurveyDefinition(
                 "שירות לקוחות 💬",
                 "תפעול ותהליכים פנימיים ⚙️",
                 "ניהול כספים 💰",
-                "אחר ✍️"
+                "אחר (נא לפרט בהודעה) ✍️"
             ],
             "multipleAnswers": True
         },
@@ -103,7 +105,7 @@ BUSINESS_SURVEY = SurveyDefinition(
         "אפיון עסקי",
         "שאלון אפיון עסקי"
     ],
-    airtable_table_id="tbloFfjqiznQ13LHs",  # יש להחליף למזהה הנכון
+    airtable_table_id="YOUR_BUSINESS_SURVEY_TABLE_ID",  # יש להחליף למזהה הנכון
     questions=[
         {
             "id": "שם מלא",
