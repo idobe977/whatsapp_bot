@@ -86,12 +86,12 @@ class WhatsAppSurveyBot:
     def __init__(self):
         self.survey_state = {}
         self.MAX_RETRIES = 3
-        self.RETRY_DELAY = 2  # seconds
-        self.SURVEY_TIMEOUT = 30  # minutes
+        self.RETRY_DELAY = 2
+        self.SURVEY_TIMEOUT = 30
         self.cleanup_task = None
-        self.reflection_cache = {}  # Cache for reflective responses
-        self.airtable_cache = {}  # Cache for Airtable records
-        self.airtable_cache_timeout = 300  # 5 minutes cache timeout
+        self.reflection_cache = {}
+        self.airtable_cache = {}
+        self.airtable_cache_timeout = 300
         
         # Initialize Airtable client
         self.airtable = Api(AIRTABLE_API_KEY)
@@ -100,17 +100,16 @@ class WhatsAppSurveyBot:
         # Initialize aiohttp session for reuse
         self.session = None
         
-        
-        # Validate all survey definitions
+        # Load surveys dynamically
+        self.survey_table_ids = {}
         for survey in AVAILABLE_SURVEYS:
             self._validate_survey_definition(survey)
-            if survey.name not in SURVEY_TABLE_IDS:
-                raise ValueError(f"Missing table ID for survey: {survey.name}")
-            survey.airtable_table_id = SURVEY_TABLE_IDS[survey.name]
+            self.survey_table_ids[survey.name] = survey.airtable_table_id
+            logger.info(f"Loaded survey: {survey.name} with table ID: {survey.airtable_table_id}")
 
     def _validate_survey_definition(self, survey: SurveyDefinition) -> None:
         """Validate survey definition has all required fields"""
-        required_fields = ['name', 'trigger_phrases', 'questions']
+        required_fields = ['name', 'trigger_phrases', 'questions', 'airtable_table_id']
         for field in required_fields:
             if not hasattr(survey, field) or not getattr(survey, field):
                 raise ValueError(f"Survey {survey.name} missing required field: {field}")
@@ -203,7 +202,7 @@ class WhatsAppSurveyBot:
         """Find the appropriate survey based on trigger phrase"""
         message = message.lower()
         for survey in AVAILABLE_SURVEYS:
-            if any(trigger in message for trigger in survey.trigger_phrases):
+            if any(trigger.lower() in message for trigger in survey.trigger_phrases):
                 return survey
         return None
 
@@ -569,17 +568,25 @@ class WhatsAppSurveyBot:
             if "answers" not in state:
                 state["answers"] = {}
             
-            # Format answer based on question type
-            formatted_answer = answer["content"]
-            if current_question["type"] == "poll":
-                # For multiple choice questions, convert to array for Airtable
-                formatted_answer = answer["content"].split(", ")
+            try:
+                # Format answer based on question type
+                formatted_answer = answer["content"]
+                if current_question["type"] == "poll":
+                    # For multiple choice questions, convert to array for Airtable
+                    formatted_answer = answer["content"].split(", ")
+                    
+                    # Remove emojis from options if present
+                    formatted_answer = [opt.split(' ')[0] for opt in formatted_answer]
                 
-                # Remove emojis from options if present
-                formatted_answer = [opt.split(' ')[0] for opt in formatted_answer]
-            
-            state["answers"][question_id] = formatted_answer
-            logger.debug(f"Updated state answers: {json.dumps(state['answers'], ensure_ascii=False)}")
+                state["answers"][question_id] = formatted_answer
+                logger.debug(f"Updated state answers: {json.dumps(state['answers'], ensure_ascii=False)}")
+            except Exception as e:
+                logger.error(f"Error formatting answer: {str(e)}")
+                await self.send_message_with_retry(
+                    chat_id, 
+                    "מצטערים, הייתה שגיאה בעיבוד התשובה. נא לנסות שוב."
+                )
+                return
             
             # Prepare Airtable update data
             update_data = {question_id: formatted_answer}
