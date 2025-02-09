@@ -52,7 +52,7 @@ RESEARCH_SURVEY = SurveyDefinition(
                 "שירות לקוחות 💬",
                 "תפעול ותהליכים פנימיים ⚙️",
                 "ניהול כספים 💰",
-                "אחר (נא לפרט בהודעה) ✍️"
+                "אחר ✍️"
             ],
             "multipleAnswers": True
         },
