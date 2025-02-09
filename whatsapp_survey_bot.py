@@ -385,9 +385,14 @@ class WhatsAppSurveyBot:
             logger.error(f"Stack trace: {traceback.format_exc()}")
             await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד ההודעה הקולית. נא לנסות שוב.")
 
-    async def generate_response_reflection(self, question: str, answer: str) -> Optional[str]:
+    async def generate_response_reflection(self, question: str, answer: str, survey: SurveyDefinition, question_data: Dict) -> Optional[str]:
         """Generate a reflective response based on the user's answer with caching"""
         try:
+            # Check if reflection is enabled for this question
+            reflection_config = question_data.get('reflection', {"type": "none", "enabled": False})
+            if not reflection_config["enabled"] or reflection_config["type"] == "none":
+                return None
+
             # Create a cache key from question and answer
             cache_key = f"{question}:{answer}"
             
@@ -396,21 +401,18 @@ class WhatsAppSurveyBot:
                 logger.info("Using cached reflection response")
                 return self.reflection_cache[cache_key]
             
+            # Get reflection prompt from survey configuration
+            reflection_type = reflection_config["type"]
+            reflection_prompt = survey.ai_prompts["reflections"].get(reflection_type, {}).get("prompt")
+            if not reflection_prompt:
+                logger.error(f"No prompt found for reflection type: {reflection_type}")
+                return None
+
             prompt = f"""
-            בהתבסס על התשובה של המשתמש לשאלה, צור תגובה קצרה ואמפתית שמשקפת את מה שהוא אמר.
-            השתמש בטון חם ואנושי. התגובה צריכה להיות קצרה (1-2 משפטים).
+            {reflection_prompt}
             
             שאלה: {question}
             תשובה: {answer}
-            
-            הנחיות:
-            1. שקף את התוכן העיקרי של התשובה
-            2. השתמש בשפה חיובית ומעריכה
-            3. הימנע מלחזור על התשובה מילה במילה
-            4. אל תוסיף מידע חדש
-            5. הוסף אימוגי אם מתאים
-            6. אתה עונה בשמי, ואני גבר. לכן, תענה כאילו אתה גבר
-            7. אני מתעסק בפיתוח פתרונות אוטומציה לעסקים. לכן, תענה כאילו אתה מפתח פתרונות אוטומציה לעסקים.            
             """
             
             response = model.generate_content(prompt)
@@ -428,128 +430,38 @@ class WhatsAppSurveyBot:
             logger.error(f"Error generating reflection: {str(e)}")
             return None
 
-    async def handle_text_message(self, chat_id: str, message: str, sender_name: str = "") -> None:
-        """Handle incoming text messages"""
-        # Regular text message handling
-        message = message.strip()
-        
-        if chat_id not in self.survey_state:
-            # Check if this is a trigger for a new survey
-            survey = self.get_survey_by_trigger(message)
-            if survey:
-                # Create initial record and start survey
-                record_id = self.create_initial_record(chat_id, sender_name, survey)
-                if record_id:
-                    self.survey_state[chat_id] = {
-                        "current_question": 0,
-                        "answers": {},
-                        "record_id": record_id,
-                        "survey": survey,
-                        "last_activity": datetime.now()
-                    }
-                    await self.send_next_question(chat_id)
-                else:
-                    await self.send_message_with_retry(
-                        chat_id, 
-                        "מצטערים, הייתה שגיאה בהתחלת השאלון. נא לנסות שוב."
-                    )
-        else:
-            state = self.survey_state[chat_id]
-            
-            # Check if we're waiting for a meeting poll response
-            if state.get("waiting_for_meeting_response") and state.get("poll_options"):
-                if message in ["1", "2"]:
-                    selected_option = state["poll_options"][int(message) - 1]
-                    await self.handle_meeting_poll_response(chat_id, selected_option)
-                    return
-                else:
-                    await self.send_message_with_retry(chat_id, "אנא השב/י 1 או 2")
-                    return
-            
-            # Regular survey answer handling
-            await self.process_survey_answer(chat_id, {"type": "text", "content": message})
-
-    async def handle_poll_response(self, chat_id: str, poll_data: Dict) -> None:
-        """Handle poll response"""
-        if chat_id not in self.survey_state:
-            logger.warning(f"Received poll response for unknown chat_id: {chat_id}")
-            return
-
-        state = self.survey_state[chat_id]
-        state['last_activity'] = datetime.now()
-
-        # Check if this is a meeting scheduling poll response
-        if state.get("waiting_for_meeting_response"):
-            selected_options = []
-            if "votes" in poll_data:
-                for vote in poll_data["votes"]:
-                    if "optionVoters" in vote and chat_id in vote.get("optionVoters", []):
-                        selected_options.append(vote["optionName"])
-            
-            if selected_options:
-                await self.handle_meeting_poll_response(chat_id, selected_options[0])
-            return
-
-        # Regular poll handling continues...
-        current_question = state["survey"].questions[state["current_question"]]
-        question_id = current_question["id"]
-        
-        # Check if current question is a poll question
-        if current_question["type"] != "poll":
-            logger.warning(f"Ignoring poll response as current question {question_id} is not a poll question")
-            return
-            
-        # Check if this poll response matches the current question's name
-        if poll_data.get("name") != current_question["text"]:
-            logger.warning(f"Ignoring poll response as it doesn't match current question. Expected: {current_question['text']}, Got: {poll_data.get('name')}")
-            return
-        
-        logger.info(f"Processing poll response for question: {question_id}")
-        logger.debug(f"Poll data: {json.dumps(poll_data, ensure_ascii=False)}")
-        
-        # Store the last poll response time for multiple choice questions
-        if current_question.get("multipleAnswers", False):
-            current_time = datetime.now()
-            state["last_poll_response"] = current_time
-            state.setdefault("selected_options", set())
-        
-        selected_options = []
-        if "votes" in poll_data:
-            for vote in poll_data["votes"]:
-                if "optionVoters" in vote and chat_id in vote.get("optionVoters", []):
-                    selected_options.append(vote["optionName"])
-        
-        if selected_options:
-            if current_question.get("multipleAnswers", False):
-                # For multiple choice questions, update the set of selected options
-                state["selected_options"].update(selected_options)
-                answer_content = ", ".join(state["selected_options"])
-                logger.info(f"Updated multiple choice selections: {answer_content}")
+    def generate_summary(self, answers: Dict[str, str], survey: SurveyDefinition) -> str:
+        """Generate a summary of the survey answers using the language model"""
+        try:
+            if not answers:
+                return "לא נמצאו תשובות לסיכום."
                 
-                # Save the current selections but don't move to next question yet
-                await self.process_survey_answer(chat_id, {
-                    "type": "poll",
-                    "content": answer_content,
-                    "is_final": False
-                })
+            summary_config = survey.ai_prompts.get("summary", {})
+            summary_prompt = summary_config.get("prompt")
+            if not summary_prompt:
+                logger.error("No summary prompt found in survey configuration")
+                return "לא הצלחנו ליצור סיכום כרגע."
+
+            prompt = f"""
+            {summary_prompt}
+
+            תשובות המשתמש:
+            {chr(10).join([f"שאלה: {q}{chr(10)}תשובה: {a}" for q, a in answers.items()])}
+            """
+            
+            response = model.generate_content([prompt])
+            summary = response.text.strip()
+            
+            # Validate summary length if configured
+            max_length = summary_config.get("max_length")
+            if max_length and len(summary) > max_length:
+                summary = summary[:max_length] + "..."
                 
-                # Send a message to inform the user they can select more options
-                await self.send_message_with_retry(chat_id, "ניתן לבחור אפשרויות נוספות. כשסיימת, המתן 3 שניות והשאלון ימשיך אוטומטית.")
-                
-                # Schedule a check to move to the next question after 3 seconds
-                asyncio.create_task(self.schedule_next_question(chat_id, 3))
-            else:
-                # For single choice questions, proceed as normal
-                answer_content = ", ".join(selected_options)
-                logger.info(f"Poll response processed - Question: {question_id}, Selected options: {answer_content}")
-                
-                await self.process_survey_answer(chat_id, {
-                    "type": "poll",
-                    "content": answer_content,
-                    "is_final": True
-                })
-        else:
-            logger.warning(f"No valid options selected for chat_id: {chat_id}")
+            return summary
+            
+        except Exception as e:
+            logger.error(f"Error generating summary: {e}")
+            return "לא הצלחנו ליצור סיכום כרגע."
 
     async def process_survey_answer(self, chat_id: str, answer: Dict[str, str]) -> None:
         try:
@@ -561,7 +473,8 @@ class WhatsAppSurveyBot:
                 return
 
             state['last_activity'] = datetime.now()
-            current_question = state["survey"].questions[state["current_question"]]
+            survey = state["survey"]
+            current_question = survey.questions[state["current_question"]]
             question_id = current_question["id"]
             
             # Save answer to state
@@ -572,10 +485,7 @@ class WhatsAppSurveyBot:
                 # Format answer based on question type
                 formatted_answer = answer["content"]
                 if current_question["type"] == "poll":
-                    # For multiple choice questions, convert to array for Airtable
                     formatted_answer = answer["content"].split(", ")
-                    
-                    # Remove emojis from options if present
                     formatted_answer = [opt.split(' ')[0] for opt in formatted_answer]
                 
                 state["answers"][question_id] = formatted_answer
@@ -584,7 +494,7 @@ class WhatsAppSurveyBot:
                 logger.error(f"Error formatting answer: {str(e)}")
                 await self.send_message_with_retry(
                     chat_id, 
-                    "מצטערים, הייתה שגיאה בעיבוד התשובה. נא לנסות שוב."
+                    survey.messages["error"]
                 )
                 return
             
@@ -595,8 +505,8 @@ class WhatsAppSurveyBot:
             
             # Run tasks concurrently
             tasks = [
-                self.generate_response_reflection(current_question["text"], answer["content"]),
-                self.update_airtable_record(state["record_id"], update_data, state["survey"])
+                self.generate_response_reflection(current_question["text"], answer["content"], survey, current_question),
+                self.update_airtable_record(state["record_id"], update_data, survey)
             ]
             reflection, airtable_success = await asyncio.gather(*tasks)
             
@@ -609,12 +519,12 @@ class WhatsAppSurveyBot:
                 state.pop("selected_options", None)
                 state.pop("last_poll_response", None)
                 
-                if state["current_question"] >= len(state["survey"].questions):
+                if state["current_question"] >= len(survey.questions):
                     asyncio.create_task(
                         self.update_airtable_record(
                             state["record_id"], 
                             {"סטטוס": "הושלם"}, 
-                            state["survey"]
+                            survey
                         )
                     )
                 
@@ -622,7 +532,7 @@ class WhatsAppSurveyBot:
             elif not airtable_success:
                 await self.send_message_with_retry(
                     chat_id, 
-                    "מצטערים, הייתה שגיאה בשמירת התשובה. נא לנסות שוב."
+                    survey.messages["error"]
                 )
             
         except Exception as e:
@@ -630,40 +540,8 @@ class WhatsAppSurveyBot:
             logger.error(f"Stack trace: {traceback.format_exc()}")
             await self.send_message_with_retry(
                 chat_id, 
-                "מצטערים, הייתה שגיאה בשמירת התשובה. נא לנסות שוב."
+                survey.messages["error"]
             )
-
-    def generate_summary(self, answers: Dict[str, str]) -> str:
-        """Generate a summary of the survey answers using the language model"""
-        try:
-            if not answers:
-                return "לא נמצאו תשובות לסיכום."
-                
-            prompt = """
-            בהתבסס על התשובות הבאות לשאלון האפיון, אנא צור סיכום תמציתי בעברית:
-
-            {}
-
-            הנחיות ליצירת הסיכום:
-            1. התחל עם משפט פתיחה קצר המציג את העסק
-            2. סכם את הנקודות העיקריות בצורה ברורה ומאורגנת
-            3. השתמש באימוג'ים מתאימים להדגשת נקודות חשובות
-            4. שמור על טון מקצועי אך ידידותי
-            5. אני רוצה שהסיכום יהיה בצורת פסקאות ולא בצורת נקודות
-            6. אני רוצה שהפלט שלך יתחיל ישר מהסיכום ללא הקדמות.
-            """.format("\n".join([f"שאלה: {q}\nתשובה: {a}" for q, a in answers.items()]))
-            
-            response = model.generate_content([prompt])
-            summary = response.text.strip()
-            
-            if not summary:
-                return "לא הצלחנו ליצור סיכום כרגע."
-                
-            return summary
-            
-        except Exception as e:
-            logger.error(f"Error generating summary: {e}")
-            return "לא הצלחנו ליצור סיכום כרגע."
 
     async def finish_survey(self, chat_id: str) -> None:
         """Finish the survey and send a summary"""
@@ -684,83 +562,27 @@ class WhatsAppSurveyBot:
                 if question_id in state.get("answers", {}):
                     answers[question["text"]] = state["answers"][question_id]
             
-            # Generate and send summary
-            logger.info("Generating summary")
-            logger.debug(f"Answers for summary: {json.dumps(answers, ensure_ascii=False)}")
-            summary = self.generate_summary(answers)
-            logger.debug(f"Generated summary: {summary[:100]}...")  # Log first 100 chars
-            
-            logger.info("Sending summary")
-            summary_response = await self.send_message_with_retry(chat_id, f"*סיכום השאלון שלך:*\n{summary}")
-            if "error" in summary_response:
-                logger.error(f"Failed to send summary: {summary_response['error']}")
-                del self.survey_state[chat_id]
-                return
+            # Generate and send summary if configured
+            completion_config = survey.messages.get("completion", {})
+            if completion_config.get("should_generate_summary", True):
+                logger.info("Generating summary")
+                logger.debug(f"Answers for summary: {json.dumps(answers, ensure_ascii=False)}")
+                summary = self.generate_summary(answers, survey)
+                logger.debug(f"Generated summary: {summary[:100]}...")  # Log first 100 chars
+                
+                logger.info("Sending summary")
+                summary_response = await self.send_message_with_retry(chat_id, f"*סיכום השאלון שלך:*\n{summary}")
+                if "error" in summary_response:
+                    logger.error(f"Failed to send summary: {summary_response['error']}")
+                    del self.survey_state[chat_id]
+                    return
 
             # Add delay after summary
             await asyncio.sleep(2)
 
-            if survey.name == "business_survey":
-                try:
-                    logger.info("Preparing to send meeting poll")
-                    poll_data = {
-                        "text": "האם לקבוע לנו כבר פגישת סיכום אפיון? 📅",
-                        "options": [
-                            "כן, אשמח כבר לקבוע זמן לפגישה 😊",
-                            "אשמח לתזכורת בהמשך"
-                        ],
-                        "multipleAnswers": False
-                    }
-                    
-                    logger.debug(f"Meeting poll data: {json.dumps(poll_data, ensure_ascii=False)}")
-                    poll_response = await self.send_poll(chat_id, poll_data)
-                    logger.debug(f"Poll response: {json.dumps(poll_response, ensure_ascii=False)}")
-                    
-                    if "error" in poll_response:
-                        logger.error(f"Failed to send meeting poll: {poll_response['error']}")
-                        await self.send_default_thank_you(chat_id)
-                        del self.survey_state[chat_id]
-                        return
-                        
-                    # Keep the state for handling the poll response
-                    logger.info("Setting waiting_for_meeting_response flag")
-                    state["waiting_for_meeting_response"] = True
-                    return  # Don't delete state yet
-                    
-                except Exception as e:
-                    logger.error(f"Error sending meeting poll: {str(e)}")
-                    logger.error(f"Stack trace: {traceback.format_exc()}")
-                    await self.send_default_thank_you(chat_id)
-                    del self.survey_state[chat_id]
-                    return
-                    
-            elif survey.name == "research_survey":
-                logger.info("Sending research survey thank you message")
-                thank_you_message = """*תודה רבה על השתתפותך במחקר!* 🙏
+            # Send completion message
+            await self.send_message_with_retry(chat_id, completion_config.get("text", "תודה על מילוי השאלון!"))
 
-התשובות שלך יעזרו לנו להבין טוב יותר את האתגרים של עסקים כמו שלך.
-*אשמח לקבוע איתך פגישת אפיון עסקי במתנה* 🎁
-
-נדבר בקרוב! 💫"""
-                await self.send_message_with_retry(chat_id, thank_you_message)
-                
-            elif survey.name == "satisfaction_survey":
-                logger.info("Sending satisfaction survey thank you message")
-                thank_you_message = """*תודה רבה על המשוב החשוב שלך!* 🙏
-
-המשוב שלך יעזור לנו להשתפר ולהעניק שירות טוב יותר.
-נשמח לעמוד לשירותך גם בעתיד! 💫"""
-                await self.send_message_with_retry(chat_id, thank_you_message)
-                
-            else:
-                logger.info("Sending default thank you message")
-                await self.send_default_thank_you(chat_id)
-                
-            # Clean up state if we're not waiting for meeting response
-            if not state.get("waiting_for_meeting_response"):
-                logger.info("Cleaning up state (not waiting for meeting response)")
-                del self.survey_state[chat_id]
-                
         except Exception as e:
             logger.error(f"Error in finish_survey: {str(e)}")
             logger.error(f"Stack trace: {traceback.format_exc()}")
