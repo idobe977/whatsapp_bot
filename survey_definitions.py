@@ -18,7 +18,7 @@ RESEARCH_SURVEY = SurveyDefinition(
         "מחקר עסקי",
         "שאלון לעסקים"
     ],
-    airtable_table_id="YOUR_RESEARCH_SURVEY_TABLE_ID",  # יש להחליף למזהה הנכון
+    airtable_table_id="tblho5wUHcU8bGJWU",  # יש להחליף למזהה הנכון
     questions=[
         {
             "id": "שם מלא",
@@ -103,7 +103,7 @@ BUSINESS_SURVEY = SurveyDefinition(
         "אפיון עסקי",
         "שאלון אפיון עסקי"
     ],
-    airtable_table_id="YOUR_BUSINESS_SURVEY_TABLE_ID",  # יש להחליף למזהה הנכון
+    airtable_table_id="tbloFfjqiznQ13LHs",  # יש להחליף למזהה הנכון
     questions=[
         {
             "id": "שם מלא",
