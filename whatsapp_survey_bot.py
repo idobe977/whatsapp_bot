@@ -563,7 +563,16 @@ class WhatsAppSurveyBot:
             # Save answer to state
             if "answers" not in state:
                 state["answers"] = {}
-            state["answers"][question_id] = answer["content"]
+            # Format answer based on question type
+            formatted_answer = answer["content"]
+            if current_question["type"] == "poll":
+                # For multiple choice questions, convert to array for Airtable
+                formatted_answer = answer["content"].split(", ")
+                
+                # Remove emojis from options if present
+                formatted_answer = [opt.split(' ')[0] for opt in formatted_answer]
+            
+            state["answers"][question_id] = formatted_answer
             logger.debug(f"Updated state answers: {json.dumps(state['answers'], ensure_ascii=False)}")
             
             # Prepare Airtable update data
