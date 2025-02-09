@@ -11,7 +11,8 @@ from datetime import datetime, timedelta
 import traceback
 from mutagen.oggopus import OggOpus
 import tempfile
-from survey_definitions import AVAILABLE_SURVEYS, SurveyDefinition
+from survey_definitions import SurveyDefinition
+from survey_loader import load_all_surveys
 import threading
 import asyncio
 from fastapi import FastAPI
@@ -66,6 +67,10 @@ logger.info("Configured Gemini API")
 # Airtable Configuration
 AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
+
+# Load all surveys from JSON files
+AVAILABLE_SURVEYS = load_all_surveys()
+logger.info(f"Loaded {len(AVAILABLE_SURVEYS)} surveys from JSON files")
 
 # Load survey table IDs
 SURVEY_TABLE_IDS = {
@@ -563,6 +568,7 @@ class WhatsAppSurveyBot:
             # Save answer to state
             if "answers" not in state:
                 state["answers"] = {}
+            
             # Format answer based on question type
             formatted_answer = answer["content"]
             if current_question["type"] == "poll":
@@ -576,7 +582,7 @@ class WhatsAppSurveyBot:
             logger.debug(f"Updated state answers: {json.dumps(state['answers'], ensure_ascii=False)}")
             
             # Prepare Airtable update data
-            update_data = {question_id: answer["content"]}
+            update_data = {question_id: formatted_answer}
             if state["current_question"] > 0:
                 update_data["סטטוס"] = "בטיפול"
             
