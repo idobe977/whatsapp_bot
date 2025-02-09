@@ -1,0 +1,32 @@
+{
+  "name": "new_survey",
+  "trigger_phrases": [
+    "התחל שאלון חדש",
+    "שאלון חדש"
+  ],
+  "airtable_table_id": "YOUR_TABLE_ID_HERE",
+  "questions": [
+    {
+      "id": "שם_מלא",
+      "type": "text",
+      "text": "מה השם המלא שלך?"
+    },
+    {
+      "id": "גיל",
+      "type": "text",
+      "text": "מה הגיל שלך?"
+    },
+    {
+      "id": "תחביבים",
+      "type": "poll",
+      "text": "מה התחביבים שלך?",
+      "options": [
+        "ספורט",
+        "קריאה",
+        "מוזיקה",
+        "אחר"
+      ],
+      "multipleAnswers": true
+    }
+  ]
+}
