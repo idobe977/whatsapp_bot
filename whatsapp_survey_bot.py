@@ -796,7 +796,7 @@ class WhatsAppSurveyBot:
             table.update(state["record_id"], update_data)
             logger.info("Successfully updated Airtable with meeting preference")
             
-            if selected_option == "כן, אשמח כבר לקבוע זמן לפגישה 😊":
+            if selected_option == "כן, אשמח מאוד שנקבע זמן 😊":
                 try:
                     logger.info("User wants to schedule meeting, fetching meeting link")
                     # Get the meeting link from Airtable
