@@ -22,8 +22,21 @@ class CalendarManager:
     def _get_calendar_service(self):
         """יצירת חיבור לשירות Google Calendar"""
         creds = None
+        is_production = os.getenv('ENVIRONMENT') == 'production'
         
-        # ניסיון לטעון הרשאות קיימות
+        # בסביבת ייצור - נשתמש בטוקנים מוגדרים מראש
+        if is_production:
+            creds = Credentials(
+                token=os.getenv('GOOGLE_ACCESS_TOKEN'),
+                refresh_token=os.getenv('GOOGLE_REFRESH_TOKEN'),
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=os.getenv("GOOGLE_CLIENT_ID"),
+                client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
+                scopes=self.SCOPES
+            )
+            return build('calendar', 'v3', credentials=creds)
+        
+        # בסביבת פיתוח - נשתמש בקובץ token.pickle
         if os.path.exists(self.TOKEN_FILE):
             with open(self.TOKEN_FILE, 'rb') as token:
                 creds = pickle.load(token)
@@ -33,7 +46,7 @@ class CalendarManager:
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
             else:
-                # שימוש בהרשאות מהסביבה
+                # הגדרת תצורת OAuth
                 client_config = {
                     "installed": {
                         "client_id": os.getenv("GOOGLE_CLIENT_ID"),
@@ -42,18 +55,30 @@ class CalendarManager:
                         "token_uri": "https://oauth2.googleapis.com/token",
                         "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
                         "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
-                        "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob", "http://localhost"]
+                        "redirect_uris": ["http://localhost:8080/"]
                     }
                 }
                 
-                flow = InstalledAppFlow.from_client_config(
-                    client_config, self.SCOPES)
-                creds = flow.run_local_server(port=0)
+                flow = InstalledAppFlow.from_client_config(client_config, self.SCOPES)
+                # Try different ports if 8080 is taken
+                for port in [8080, 8081, 8082, 8083, 8084, 8085]:
+                    try:
+                        creds = flow.run_local_server(port=port)
+                        # Print tokens for production setup
+                        print("\n=== Production Tokens ===")
+                        print(f"GOOGLE_ACCESS_TOKEN={creds.token}")
+                        print(f"GOOGLE_REFRESH_TOKEN={creds.refresh_token}")
+                        print("======================\n")
+                        break
+                    except OSError:
+                        if port == 8085:  # Last attempt
+                            raise
+                        continue
                 
-            # שמירת ההרשאות לשימוש עתידי
-            with open(self.TOKEN_FILE, 'wb') as token:
-                pickle.dump(creds, token)
-                
+                # שמירת ההרשאות לשימוש עתידי
+                with open(self.TOKEN_FILE, 'wb') as token:
+                    pickle.dump(creds, token)
+                    
         return build('calendar', 'v3', credentials=creds)
     
     def get_available_days(self, start_date: datetime, days_ahead: int = 14) -> List[datetime]:
