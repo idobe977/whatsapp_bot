@@ -9,8 +9,8 @@
     "שאלון לעסקים"
 ],
   "airtable": {
-    "table_id": "appjvjnGLFopOf75b",
-    "base_id": "tblho5wUHcU8bGJWU"
+    "base_id": "appjvjnGLFopOf75b",
+    "table_id": "tblho5wUHcU8bGJWU"
   },
   "messages": {
     "welcome": "*תודה שהקדשת מזמנך!* 🙏\nהתשובות שלך יעזרו לי ללמוד ולהבין את האתגרים המרכזיים של עסקים כמוך. 🎯\n*אשמח להעניק לך פגישת אפיון עסקי במתנה* 🎁\n\n",
