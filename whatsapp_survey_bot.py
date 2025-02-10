@@ -19,7 +19,6 @@ import aiohttp
 import re
 import time
 import glob
-from calendar_manager import CalendarManager
 
 # Configure logging with more detailed format
 logging.basicConfig(
@@ -45,9 +44,7 @@ required_env_vars = [
     "AIRTABLE_BASE_ID",
     "AIRTABLE_BUSINESS_SURVEY_TABLE_ID",
     "AIRTABLE_RESEARCH_SURVEY_TABLE_ID",
-    "GOOGLE_CLIENT_ID",
-    "GOOGLE_CLIENT_SECRET",
-    "GOOGLE_PROJECT_ID"
+    "AIRTABLE_SATISFACTION_SURVEY_TABLE_ID"
 ]
 
 missing_vars = [var for var in required_env_vars if not os.getenv(var)]
@@ -115,39 +112,15 @@ def load_surveys_from_json() -> List[SurveyDefinition]:
     surveys = []
     surveys_dir = 'surveys'
     
-    logger.info(f"Loading surveys from directory: {surveys_dir}")
-    
     if not os.path.exists(surveys_dir):
-        logger.warning(f"Surveys directory {surveys_dir} does not exist, creating it")
         os.makedirs(surveys_dir)
         logger.info(f"Created surveys directory: {surveys_dir}")
         return []
 
-    json_files = glob.glob(os.path.join(surveys_dir, '*.json'))
-    logger.info(f"Found {len(json_files)} survey definition files")
-    
-    for file_path in json_files:
+    for file_path in glob.glob(os.path.join(surveys_dir, '*.json')):
         try:
-            logger.info(f"Loading survey from {file_path}")
             with open(file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            
-            # Validate required fields
-            required_fields = ['name', 'trigger_phrases', 'airtable', 'questions']
-            missing_fields = [field for field in required_fields if field not in data]
-            if missing_fields:
-                logger.error(f"Survey file {file_path} missing required fields: {missing_fields}")
-                continue
-                
-            # Validate airtable configuration
-            if 'table_id' not in data['airtable']:
-                logger.error(f"Survey file {file_path} missing airtable.table_id")
-                continue
-                
-            # Log survey details before creating
-            logger.debug(f"Survey name: {data['name']}")
-            logger.debug(f"Trigger phrases: {data['trigger_phrases']}")
-            logger.debug(f"Number of questions: {len(data['questions'])}")
                 
             survey = SurveyDefinition(
                 name=data['name'],
@@ -155,23 +128,14 @@ def load_surveys_from_json() -> List[SurveyDefinition]:
                 airtable_table_id=data['airtable']['table_id'],
                 airtable_base_id=data['airtable'].get('base_id'),
                 questions=data['questions'],
-                messages=data.get('messages'),  # Optional
-                ai_prompts=data.get('ai_prompts')  # Optional
+                messages=data['messages'],
+                ai_prompts=data['ai_prompts']
             )
             surveys.append(survey)
             logger.info(f"Successfully loaded survey: {survey.name} from {file_path}")
-            
-        except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON in survey file {file_path}: {str(e)}")
         except Exception as e:
             logger.error(f"Error loading survey from {file_path}: {str(e)}")
-            logger.error(f"Stack trace: {traceback.format_exc()}")
             
-    if not surveys:
-        logger.warning("No valid surveys were loaded")
-    else:
-        logger.info(f"Successfully loaded {len(surveys)} surveys")
-        
     return surveys
 
 class WhatsAppSurveyBot:
@@ -205,21 +169,12 @@ class WhatsAppSurveyBot:
         # Initialize aiohttp session for reuse
         self.session = None
         
-        # Load surveys once during initialization
-        try:
-            self.surveys = load_surveys_from_json()
-            self.survey_table_ids = {}
-            for survey in self.surveys:
-                self._validate_survey_definition(survey)
-                self.survey_table_ids[survey.name] = survey.airtable_table_id
-                logger.info(f"Loaded survey: {survey.name} with table ID: {survey.airtable_table_id}")
-        except Exception as e:
-            logger.error(f"Error loading surveys: {str(e)}")
-            self.surveys = []
-            self.survey_table_ids = {}
-
-        self.calendar_manager = CalendarManager()
-        self.meeting_state = {}
+        # Load surveys dynamically
+        self.survey_table_ids = {}
+        for survey in load_surveys_from_json():
+            self._validate_survey_definition(survey)
+            self.survey_table_ids[survey.name] = survey.airtable_table_id
+            logger.info(f"Loaded survey: {survey.name} with table ID: {survey.airtable_table_id}")
 
     def _validate_survey_definition(self, survey: SurveyDefinition) -> None:
         """Validate survey definition has all required fields"""
@@ -284,13 +239,6 @@ class WhatsAppSurveyBot:
         last_error = None
         session = await self.get_aiohttp_session()
         
-        # Clean message for WhatsApp
-        message = message.replace('**', '*').replace('__', '_')  # Convert markdown
-        message = '\n'.join(line.strip() for line in message.split('\n'))  # Clean newlines
-        message = message.strip()
-        
-        logger.debug(f"Sending message to {chat_id}: {message[:100]}...")  # Log first 100 chars
-        
         while retries < self.MAX_RETRIES:
             try:
                 url = f"{GREEN_API_BASE_URL}/sendMessage/{API_TOKEN_INSTANCE}"
@@ -300,34 +248,20 @@ class WhatsAppSurveyBot:
                 }
                 
                 async with session.post(url, json=payload) as response:
-                    response_text = await response.text()
-                    logger.debug(f"Response from API: {response_text}")
-                    
                     if response.status == 200:
-                        try:
-                            response_data = json.loads(response_text)
-                            logger.info(f"Message sent successfully to {chat_id}")
-                            return response_data
-                        except json.JSONDecodeError as e:
-                            logger.error(f"Invalid JSON response: {str(e)}")
-                            logger.error(f"Response text: {response_text}")
-                            last_error = "Invalid JSON response"
-                    else:
-                        logger.error(f"API error: {response.status} - {response_text}")
-                        last_error = f"HTTP {response.status}"
+                        response_data = await response.json()
+                        logger.info(f"Message sent successfully to {chat_id}")
+                        return response_data
                     
+                last_error = f"HTTP {response.status}"
                 retries += 1
                 if retries < self.MAX_RETRIES:
-                    logger.info(f"Retrying in {self.RETRY_DELAY} seconds...")
                     await asyncio.sleep(self.RETRY_DELAY)
                 
             except Exception as e:
-                logger.error(f"Error sending message: {str(e)}")
-                logger.error(f"Stack trace: {traceback.format_exc()}")
                 last_error = str(e)
                 retries += 1
                 if retries < self.MAX_RETRIES:
-                    logger.info(f"Retrying in {self.RETRY_DELAY} seconds...")
                     await asyncio.sleep(self.RETRY_DELAY)
                 
         logger.error(f"Failed to send message after {self.MAX_RETRIES} retries: {last_error}")
@@ -335,48 +269,11 @@ class WhatsAppSurveyBot:
 
     def get_survey_by_trigger(self, message: str) -> Optional[SurveyDefinition]:
         """Find the appropriate survey based on trigger phrase"""
-        try:
-            logger.info(f"Looking for survey trigger in message: {message}")
-            
-            if not message:
-                logger.warning("Empty message received")
-                return None
-                
-            # Clean and normalize message for comparison
-            clean_message = message.lower().strip()
-            clean_message = ' '.join(clean_message.split())  # Normalize whitespace
-            clean_message = clean_message.replace('–', '-').replace('—', '-')  # Normalize dashes
-            logger.debug(f"Cleaned message: {clean_message}")
-            
-            # Log available surveys and triggers
-            logger.debug(f"Available surveys: {[s.name for s in self.surveys]}")
-            all_triggers = [(s.name, t) for s in self.surveys for t in s.trigger_phrases]
-            logger.debug(f"Available triggers: {all_triggers}")
-            
-            for survey in self.surveys:
-                for trigger in survey.trigger_phrases:
-                    # Clean and normalize trigger
-                    clean_trigger = trigger.lower().strip()
-                    clean_trigger = ' '.join(clean_trigger.split())
-                    clean_trigger = clean_trigger.replace('–', '-').replace('—', '-')
-                    
-                    # Try exact match first
-                    if clean_message == clean_trigger:
-                        logger.info(f"Found exact match for survey: {survey.name} with trigger: {trigger}")
-                        return survey
-                        
-                    # Then try contains match
-                    if clean_trigger in clean_message:
-                        logger.info(f"Found partial match for survey: {survey.name} with trigger: {trigger}")
-                        return survey
-                        
-            logger.info("No matching survey found")
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error in get_survey_by_trigger: {str(e)}")
-            logger.error(f"Stack trace: {traceback.format_exc()}")
-            return None
+        message = message.lower()
+        for survey in load_surveys_from_json():
+            if any(trigger.lower() in message for trigger in survey.trigger_phrases):
+                return survey
+        return None
 
     def get_existing_record_id(self, chat_id: str, survey: SurveyDefinition) -> Optional[str]:
         """Get existing record ID for a chat_id"""
@@ -430,35 +327,15 @@ class WhatsAppSurveyBot:
             logger.debug(f"Poll question: {question['text']}")
             logger.debug(f"Poll options: {question['options']}")
             
-            # Validate required fields
-            if 'text' not in question or 'options' not in question:
-                logger.error("Missing required fields in poll question")
-                return {"error": "Missing required fields"}
-                
-            if not question['options']:
-                logger.error("No options provided for poll")
-                return {"error": "No options provided"}
-            
-            # Clean text and options
-            question_text = question['text']
-            question_text = question_text.replace('**', '*').replace('__', '_')  # Convert markdown
-            question_text = '\n'.join(line.strip() for line in question_text.split('\n'))  # Clean newlines
-            question_text = question_text.strip()
-            
-            # Format options according to API spec
-            formatted_options = []
-            for opt in question["options"]:
-                # Clean option text
-                opt_text = opt.strip()
-                opt_text = opt_text.replace('**', '*').replace('__', '_')  # Convert markdown
-                formatted_options.append({"optionName": opt_text})
-            
             # Construct the full URL according to the API documentation
             url = f"https://api.greenapi.com/waInstance{ID_INSTANCE}/sendPoll/{API_TOKEN_INSTANCE}"
             
+            # Format options according to API spec
+            formatted_options = [{"optionName": opt} for opt in question["options"]]
+            
             payload = {
                 "chatId": chat_id,
-                "message": question_text,
+                "message": question["text"],
                 "options": formatted_options,
                 "multipleAnswers": question.get("multipleAnswers", False)
             }
@@ -694,58 +571,20 @@ class WhatsAppSurveyBot:
         return text.strip()
 
     async def process_survey_answer(self, chat_id: str, answer: Dict[str, str]) -> None:
-        """Process a survey answer"""
         try:
-            logger.info(f"Starting process_survey_answer for chat_id: {chat_id}")
-            logger.debug(f"Answer data: {json.dumps(answer, ensure_ascii=False)}")
+            logger.info(f"Processing survey answer for chat_id: {chat_id}")
             
-            # Validate input parameters
-            if not chat_id or not answer:
-                logger.error("Missing required parameters")
-                return
-                
-            if not isinstance(answer, dict) or "type" not in answer or "content" not in answer:
-                logger.error(f"Invalid answer format: {answer}")
+            state = self.survey_state.get(chat_id)
+            if not state or "record_id" not in state:
+                logger.error(f"No valid state found for chat_id: {chat_id}")
                 return
 
-            # Validate survey state
-            if chat_id not in self.survey_state:
-                logger.warning(f"No active survey found for chat_id: {chat_id}")
-                return
-
-            state = self.survey_state[chat_id]
             state['last_activity'] = datetime.now()
-            
-            # Validate required state fields
-            if "survey" not in state:
-                logger.error(f"Invalid survey state for chat_id {chat_id}: missing survey")
-                await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד השאלון. נא להתחיל מחדש.")
-                del self.survey_state[chat_id]
-                return
-                
-            if "current_question" not in state:
-                logger.error(f"Invalid survey state for chat_id {chat_id}: missing current_question")
-                await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד השאלון. נא להתחיל מחדש.")
-                del self.survey_state[chat_id]
-                return
-                
             survey = state["survey"]
-            current_question_index = state["current_question"]
-            
-            # Validate question index
-            if current_question_index >= len(survey.questions):
-                logger.error(f"Invalid question index {current_question_index} for chat_id {chat_id}")
-                await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד השאלון. נא להתחיל מחדש.")
-                del self.survey_state[chat_id]
-                return
-                
-            current_question = survey.questions[current_question_index]
+            current_question = survey.questions[state["current_question"]]
             question_id = current_question["id"]
             
-            logger.info(f"Processing answer for chat_id: {chat_id}, question: {question_id}")
-            logger.debug(f"Current question: {json.dumps(current_question, ensure_ascii=False)}")
-            
-            # Initialize answers if not exists
+            # Save answer to state
             if "answers" not in state:
                 state["answers"] = {}
             
@@ -758,18 +597,12 @@ class WhatsAppSurveyBot:
                     formatted_answer = [opt.split('⚡')[0].split('⏱️')[0].split('⏰')[0].strip() for opt in formatted_answer]
                     formatted_answer = formatted_answer[0] if formatted_answer else ""
                 else:
-                    # Clean text for regular answers
-                    formatted_answer = ' '.join(formatted_answer.split())  # Remove extra spaces
-                    formatted_answer = formatted_answer.replace('–', '-').replace('—', '-')  # Normalize dashes
-                    formatted_answer = formatted_answer.strip()
+                    formatted_answer = self.clean_text_for_airtable(formatted_answer)
                 
                 state["answers"][question_id] = formatted_answer
-                logger.info(f"Formatted answer: {formatted_answer}")
                 logger.debug(f"Updated state answers: {json.dumps(state['answers'], ensure_ascii=False)}")
-                
             except Exception as e:
                 logger.error(f"Error formatting answer: {str(e)}")
-                logger.error(f"Stack trace: {traceback.format_exc()}")
                 await self.send_message_with_retry(
                     chat_id, 
                     survey.messages["error"]
@@ -781,56 +614,89 @@ class WhatsAppSurveyBot:
             if state["current_question"] > 0:
                 update_data["סטטוס"] = "בטיפול"
             
-            logger.info(f"Updating Airtable with data: {json.dumps(update_data, ensure_ascii=False)}")
-            
-            # First update Airtable
-            airtable_success = await self.update_airtable_record(state["record_id"], update_data, survey)
-            logger.info(f"Airtable update success: {airtable_success}")
-            
-            if not airtable_success:
-                logger.error("Failed to update Airtable, sending error message")
-                await self.send_message_with_retry(
-                    chat_id, 
-                    survey.messages["error"]
-                )
-                return
-            
-            try:
-                # Then generate reflection if needed
-                reflection = await self.generate_response_reflection(
+            # Run tasks concurrently
+            tasks = [
+                self.generate_response_reflection(
                     current_question["text"], 
                     answer["content"], 
                     survey, 
                     {**current_question, "chat_id": chat_id}
-                )
+                ),
+                self.update_airtable_record(state["record_id"], update_data, survey)
+            ]
+            reflection, airtable_success = await asyncio.gather(*tasks)
+            
+            if reflection:
+                await self.send_message_with_retry(chat_id, reflection)
+                await asyncio.sleep(1.5)
+            
+            if airtable_success and answer.get("is_final", True):
+                # Handle flow logic
+                next_question_id = None
+                custom_message = None
                 
-                if reflection:
-                    logger.info("Sending reflection message")
-                    logger.debug(f"Reflection: {reflection}")
-                    await self.send_message_with_retry(chat_id, reflection)
+                if "flow" in current_question:
+                    flow = current_question["flow"]
+                    user_answer = answer["content"]
+                    
+                    # For poll questions, get the full answer text
+                    if current_question["type"] == "poll":
+                        user_answer = user_answer.split(", ")[0]  # Get first selected option
+                    
+                    # Check if conditions
+                    if "if" in flow:
+                        if_condition = flow["if"]
+                        if user_answer == if_condition["answer"]:
+                            next_question_id = if_condition["then"].get("goto")
+                            custom_message = if_condition["then"].get("say")
+                        elif "else_if" in flow:
+                            # Handle else_if as a list of conditions
+                            if isinstance(flow["else_if"], list):
+                                for else_if_condition in flow["else_if"]:
+                                    if user_answer == else_if_condition["answer"]:
+                                        next_question_id = else_if_condition["then"].get("goto")
+                                        custom_message = else_if_condition["then"].get("say")
+                                        break
+                            # Handle else_if as a single condition
+                            elif isinstance(flow["else_if"], dict):
+                                else_if_condition = flow["else_if"]
+                                if user_answer == else_if_condition["answer"]:
+                                    next_question_id = else_if_condition["then"].get("goto")
+                                    custom_message = else_if_condition["then"].get("say")
+                    # Check for simple then flow
+                    elif "then" in flow:
+                        next_question_id = flow["then"].get("goto")
+                        custom_message = flow["then"].get("say")
+                
+                # Send custom message if exists
+                if custom_message:
+                    await self.send_message_with_retry(chat_id, custom_message)
                     await asyncio.sleep(1.5)
                 
-                # Move to next question
-                state["current_question"] += 1
+                # Find next question index
+                if next_question_id:
+                    next_index = next((i for i, q in enumerate(survey.questions) if q["id"] == next_question_id), None)
+                    if next_index is not None:
+                        state["current_question"] = next_index
+                    else:
+                        state["current_question"] += 1
+                else:
+                    state["current_question"] += 1
+                
                 state.pop("selected_options", None)
                 state.pop("last_poll_response", None)
                 
-                logger.info(f"Moving to next question: {state['current_question']}")
-                
                 if state["current_question"] >= len(survey.questions):
-                    logger.info("Survey completed, updating final status")
-                    await self.update_airtable_record(
-                        state["record_id"], 
-                        {"סטטוס": "הושלם"}, 
-                        survey
+                    asyncio.create_task(
+                        self.update_airtable_record(
+                            state["record_id"], 
+                            {"סטטוס": "הושלם"}, 
+                            survey
+                        )
                     )
-                    await self.finish_survey(chat_id)
-                else:
-                    await self.send_next_question(chat_id)
-                    
-            except Exception as e:
-                logger.error(f"Error processing reflection or next question: {str(e)}")
-                logger.error(f"Stack trace: {traceback.format_exc()}")
+                
+                await self.send_next_question(chat_id)
+            elif not airtable_success:
                 await self.send_message_with_retry(
                     chat_id, 
                     survey.messages["error"]
@@ -902,76 +768,57 @@ class WhatsAppSurveyBot:
 
     async def handle_meeting_poll_response(self, chat_id: str, selected_option: str) -> None:
         """Handle response to meeting scheduling poll"""
-        try:
-            logger.info(f"Starting handle_meeting_poll_response for chat_id: {chat_id}")
-            logger.info(f"Selected option: {selected_option}")
+        logger.info(f"Starting handle_meeting_poll_response for chat_id: {chat_id}")
+        logger.info(f"Selected option: {selected_option}")
+        
+        state = self.survey_state.get(chat_id)
+        if not state:
+            logger.error(f"No state found for chat_id: {chat_id}")
+            return
             
-            state = self.survey_state.get(chat_id)
-            if not state:
-                logger.error(f"No state found for chat_id: {chat_id}")
-                return
-                
-            if not state.get("waiting_for_meeting_response"):
-                logger.error("State not waiting for meeting response")
-                return
-                
-            if "survey" not in state:
-                logger.error(f"Invalid survey state for chat_id {chat_id}: missing survey")
-                return
-                
-            if "record_id" not in state:
-                logger.error(f"Invalid survey state for chat_id {chat_id}: missing record_id")
-                return
+        if not state.get("waiting_for_meeting_response"):
+            logger.error("State not waiting for meeting response")
+            return
 
-            try:
-                logger.info("Updating Airtable with meeting preference")
-                survey = state["survey"]
-                table_id = survey.airtable_table_id
-                
-                # Update Airtable with the response
-                update_data = {
-                    "מעוניין לקבוע פגישה": selected_option,
-                    "סטטוס": "הושלם"  # Make sure to update status to completed
-                }
-                
-                logger.debug(f"Update data for Airtable: {json.dumps(update_data, ensure_ascii=False)}")
-                table = self.airtable.table(AIRTABLE_BASE_ID, table_id)
-                table.update(state["record_id"], update_data)
-                logger.info("Successfully updated Airtable with meeting preference")
-                
-                if selected_option == "כן, אשמח כבר לקבוע זמן לפגישה 😊":
-                    try:
-                        logger.info("User wants to schedule meeting, fetching meeting link")
-                        # Get the meeting link from Airtable
-                        record = table.get(state["record_id"])
-                        if not record or "fields" not in record:
-                            logger.error(f"Invalid record data for {state['record_id']}")
-                            await self.send_default_thank_you(chat_id)
-                            return
-                            
-                        meeting_link = record.get("fields", {}).get("קישור לפגישה")
-                        
-                        if meeting_link:
-                            logger.info("Found meeting link, sending to user")
-                            await self.send_message_with_retry(chat_id, f"""מעולה! 🎉
+        try:
+            logger.info("Updating Airtable with meeting preference")
+            survey = state["survey"]
+            table_id = survey.airtable_table_id
+            
+            # Update Airtable with the response
+            update_data = {
+                "מעוניין לקבוע פגישה": selected_option,
+                "סטטוס": "הושלם"  # Make sure to update status to completed
+            }
+            
+            logger.debug(f"Update data for Airtable: {json.dumps(update_data, ensure_ascii=False)}")
+            table = self.airtable.table(AIRTABLE_BASE_ID, table_id)
+            table.update(state["record_id"], update_data)
+            logger.info("Successfully updated Airtable with meeting preference")
+            
+            if selected_option == "כן, אשמח כבר לקבוע זמן לפגישה 😊":
+                try:
+                    logger.info("User wants to schedule meeting, fetching meeting link")
+                    # Get the meeting link from Airtable
+                    record = table.get(state["record_id"])
+                    meeting_link = record.get("fields", {}).get("קישור לפגישה")
+                    
+                    if meeting_link:
+                        logger.info("Found meeting link, sending to user")
+                        await self.send_message_with_retry(chat_id, f"""מעולה! 🎉
 אשמח להיפגש ולדבר על הפתרונות שיכולים לעזור לך.
 
 לקביעת הפגישה: {meeting_link}""")
-                        else:
-                            logger.error(f"Meeting link not found for record {state['record_id']}")
-                            await self.send_default_thank_you(chat_id)
-                    except Exception as e:
-                        logger.error(f"Error getting meeting link: {str(e)}")
-                        logger.error(f"Stack trace: {traceback.format_exc()}")
+                    else:
+                        logger.error(f"Meeting link not found for record {state['record_id']}")
                         await self.send_default_thank_you(chat_id)
-                else:
-                    # Send thank you message for users who want a reminder later
-                    logger.info("Sending thank you message")
+                except Exception as e:
+                    logger.error(f"Error getting meeting link: {str(e)}")
+                    logger.error(f"Stack trace: {traceback.format_exc()}")
                     await self.send_default_thank_you(chat_id)
-                    
-            except Exception as e:
-                logger.error(f"Error updating Airtable: {str(e)}")
-                logger.error(f"Stack trace: {traceback.format_exc()}")
+            else:
+                # Send thank you message for users who want a reminder later
+                logger.info("Sending thank you message")
                 await self.send_default_thank_you(chat_id)
                 
         except Exception as e:
@@ -1008,21 +855,13 @@ class WhatsAppSurveyBot:
 
     async def send_next_question(self, chat_id: str) -> None:
         """Send the next survey question"""
-        try:
-            state = self.survey_state.get(chat_id)
-            if not state:
-                logger.warning(f"No survey state found for chat_id: {chat_id}")
-                return
+        state = self.survey_state.get(chat_id)
+        if not state:
+            return
 
-            survey = state["survey"]
-            if state["current_question"] >= len(survey.questions):
-                logger.info(f"Survey completed for chat_id: {chat_id}")
-                await self.finish_survey(chat_id)
-                return
-                
+        survey = state["survey"]
+        if state["current_question"] < len(survey.questions):
             question = survey.questions[state["current_question"]]
-            logger.info(f"Sending question {state['current_question']} to {chat_id}")
-            logger.debug(f"Question data: {json.dumps(question, ensure_ascii=False)}")
             
             # Check if question text contains Airtable field placeholders
             question_text = question["text"]
@@ -1030,34 +869,24 @@ class WhatsAppSurveyBot:
                 try:
                     # Find all placeholders in format {{field_name}}
                     placeholders = re.findall(r'\{\{(.*?)\}\}', question_text)
-                    logger.debug(f"Found placeholders: {placeholders}")
                     for field_name in placeholders:
                         field_value = await self.get_airtable_field_value(state["record_id"], field_name, survey)
                         if field_value:
                             question_text = question_text.replace(f"{{{{{field_name}}}}}", str(field_value))
-                            logger.debug(f"Replaced placeholder {field_name} with value: {field_value}")
                 except Exception as e:
-                    logger.error(f"Error processing placeholders: {str(e)}")
-                    logger.error(f"Stack trace: {traceback.format_exc()}")
+                    logger.error(f"Error processing Airtable field placeholders: {e}")
             
             if question["type"] == "poll":
-                logger.info("Sending poll question")
                 response = await self.send_poll(chat_id, {**question, "text": question_text})
                 if "error" in response:
-                    logger.error(f"Error sending poll: {response['error']}")
                     await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בשליחת השאלה. נא לנסות שוב.")
                     return
             else:
-                logger.info("Sending text question")
                 response = await self.send_message_with_retry(chat_id, question_text)
                 if "error" in response:
-                    logger.error(f"Error sending message: {response['error']}")
                     return
-                    
-        except Exception as e:
-            logger.error(f"Error in send_next_question: {str(e)}")
-            logger.error(f"Stack trace: {traceback.format_exc()}")
-            await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בשליחת השאלה. נא לנסות שוב.")
+        else:
+            await self.finish_survey(chat_id)
 
     async def cleanup(self):
         """Cleanup resources"""
@@ -1098,69 +927,26 @@ class WhatsAppSurveyBot:
             del self.airtable_cache[k]
 
     async def update_airtable_record(self, record_id: str, data: Dict, survey: SurveyDefinition) -> bool:
-        """Update Airtable record with retries and proper datetime handling"""
+        """Update Airtable record asynchronously"""
         try:
-            logger.info(f"Starting Airtable update for record {record_id}")
-            
-            if not record_id or not data or not survey:
-                logger.error("Missing required parameters for Airtable update")
-                return False
-            
-            # Convert datetime objects to strings in the data
-            formatted_data = {}
-            for key, value in data.items():
-                if isinstance(value, datetime):
-                    formatted_data[key] = value.strftime("%Y-%m-%d %H:%M:%S")
-                else:
-                    formatted_data[key] = value
-            
-            logger.debug(f"Formatted update data: {json.dumps(formatted_data, ensure_ascii=False)}")
-            
             # Get cached record if available
             cached_record = self.get_cached_airtable_record(record_id, survey.airtable_table_id)
             if cached_record:
                 # Merge new data with cached record
-                cached_record.update(formatted_data)
+                cached_record.update(data)
                 self.cache_airtable_record(record_id, survey.airtable_table_id, cached_record)
-                logger.debug("Updated cache with new data")
             
-            # Update Airtable with retries
-            retries = 0
-            max_retries = 3
-            retry_delay = 2  # seconds
-            last_error = None
+            # Update Airtable
+            table = self.airtable.table(AIRTABLE_BASE_ID, survey.airtable_table_id)
+            table.update(record_id, data)
             
-            while retries < max_retries:
-                try:
-                    table = self.airtable.table(AIRTABLE_BASE_ID, survey.airtable_table_id)
-                    table.update(record_id, formatted_data)
-                    logger.info(f"Successfully updated Airtable record {record_id}")
-                    
-                    # Update cache with new data
-                    if not cached_record:
-                        self.cache_airtable_record(record_id, survey.airtable_table_id, formatted_data)
-                    
-                    return True
-                    
-                except Exception as e:
-                    retries += 1
-                    last_error = str(e)
-                    logger.warning(f"Airtable update attempt {retries} failed: {str(e)}")
-                    
-                    if hasattr(e, 'response'):
-                        logger.error(f"Airtable error response: {e.response.text if hasattr(e.response, 'text') else e.response}")
-                    
-                    if retries < max_retries:
-                        logger.info(f"Retrying in {retry_delay} seconds...")
-                        await asyncio.sleep(retry_delay)
-                        retry_delay *= 2  # Exponential backoff
-                    else:
-                        logger.error(f"Failed to update Airtable after {max_retries} attempts. Last error: {last_error}")
-                        return False
-                
+            # Update cache with new data
+            if not cached_record:
+                self.cache_airtable_record(record_id, survey.airtable_table_id, data)
+            
+            return True
         except Exception as e:
-            logger.error(f"Error updating Airtable record: {str(e)}")
-            logger.error(f"Stack trace: {traceback.format_exc()}")
+            logger.error(f"Error updating Airtable record: {e}")
             return False
 
     async def schedule_next_question(self, chat_id: str, delay_seconds: int) -> None:
@@ -1179,115 +965,45 @@ class WhatsAppSurveyBot:
             state.pop("last_poll_response", None)
             await self.send_next_question(chat_id)
 
-    async def handle_survey_response(self, chat_id: str, message: str) -> bool:
-        """Handle a response when user is in an active survey. Returns True if handled, False otherwise."""
-        try:
-            if chat_id not in self.survey_state:
-                return False
-                
-            state = self.survey_state[chat_id]
-            if "survey" not in state or "current_question" not in state:
-                logger.error(f"Invalid survey state for {chat_id}")
-                return False
-                
-            logger.info(f"Processing survey response for question {state['current_question']}")
-            await self.process_survey_answer(chat_id, {"type": "text", "content": message})
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error in handle_survey_response: {str(e)}")
-            logger.error(f"Stack trace: {traceback.format_exc()}")
-            return False
-
     async def handle_text_message(self, chat_id: str, message: str, sender_name: str = "") -> None:
         """Handle incoming text messages"""
         try:
-            logger.info(f"Starting handle_text_message for chat_id: {chat_id}, message: {message}")
+            # Regular text message handling
             message = message.strip()
-
-            # First check if user is in an active survey
-            if chat_id in self.survey_state:
-                state = self.survey_state[chat_id]
-                logger.info(f"Found active survey state for {chat_id}")
-                
-                # Create a copy of state for logging, properly handling datetime objects
-                log_state = {}
-                for k, v in state.items():
-                    if k != 'survey':
-                        if isinstance(v, datetime):
-                            log_state[k] = v.isoformat()
-                        elif isinstance(v, dict):
-                            # Handle nested dictionaries
-                            log_state[k] = {}
-                            for sub_k, sub_v in v.items():
-                                if isinstance(sub_v, datetime):
-                                    log_state[k][sub_k] = sub_v.isoformat()
-                                else:
-                                    log_state[k][sub_k] = sub_v
-                        else:
-                            log_state[k] = v
-                            
-                logger.debug(f"Current survey state: {json.dumps(log_state, ensure_ascii=False)}")
-                
-                # Update last_activity as string
-                state['last_activity'] = datetime.now()
-                
-                # Check for stop survey command
-                if message.lower() in ["הפסקת שאלון", "עצור שאלון", "ביטול שאלון", "stop"]:
-                    logger.info(f"Received stop survey command from {chat_id}")
-                    survey = state.get("survey")
-                    record_id = state.get("record_id")
-                    
-                    if survey and record_id:
-                        # Update Airtable record status
+            
+            # Check for survey exit command
+            if message.lower() == "הפסקת שאלון":
+                if chat_id in self.survey_state:
+                    state = self.survey_state[chat_id]
+                    survey = state["survey"]
+                    # Update Airtable record status to "בוטל"
+                    try:
                         await self.update_airtable_record(
-                            record_id,
+                            state["record_id"],
                             {"סטטוס": "בוטל"},
                             survey
                         )
+                    except Exception as e:
+                        logger.error(f"Error updating Airtable status on survey exit: {str(e)}")
                     
-                    # Clean up state
                     del self.survey_state[chat_id]
-                    await self.send_message_with_retry(
-                        chat_id,
-                        "השאלון הופסק. אתה מוזמן להתחיל מחדש בכל זמן שתרצה 😊"
-                    )
-                    return
-
-                # Process as survey answer if we have valid survey state
-                if "survey" in state and "current_question" in state:
-                    logger.info(f"Processing survey answer for chat_id: {chat_id}, question index: {state['current_question']}")
-                    await self.process_survey_answer(chat_id, {"type": "text", "content": message})
-                    return
-                else:
-                    logger.error(f"Invalid survey state for {chat_id}: {state}")
-                    del self.survey_state[chat_id]
-                    return
-
-            # If no active survey, check if in meeting scheduling state
-            if chat_id in self.meeting_state:
-                meeting_state = self.meeting_state[chat_id]
-                if meeting_state['state'] == 'waiting_for_day':
-                    logger.info(f"Handling day selection for meeting: {message}")
-                    await self.handle_day_selection(chat_id, message)
-                    return
-                elif meeting_state['state'] == 'waiting_for_time':
-                    logger.info(f"Handling time selection for meeting: {message}")
-                    await self.handle_time_selection(chat_id, message)
-                    return
-
-            # If no active survey or meeting, check for new requests
-            # Check for meeting request keywords
-            if message.lower() in ["פגישה", "קביעת פגישה", "תיאום פגישה"]:
-                logger.info("Handling new meeting request")
-                await self.handle_meeting_request(chat_id)
+                    await self.send_message_with_retry(chat_id, "השאלון הופסק. תודה על זמנך! 🙏")
                 return
-
-            # Finally check for new survey trigger
-            logger.info("Checking for new survey trigger")
+            
+            # Check if this is a trigger for a new survey
             new_survey = self.get_survey_by_trigger(message)
             if new_survey:
-                logger.info(f"Found new survey trigger: {new_survey.name}")
+                # If user is in an existing survey that's completed, allow starting new one
+                if chat_id in self.survey_state:
+                    state = self.survey_state[chat_id]
+                    if state["current_question"] >= len(state["survey"].questions):
+                        del self.survey_state[chat_id]
+                    else:
+                        # If in middle of survey, process as regular answer
+                        await self.process_survey_answer(chat_id, {"type": "text", "content": message})
+                        return
+                
+                # Create initial record and start new survey
                 record_id = self.create_initial_record(chat_id, sender_name, new_survey)
                 if record_id:
                     self.survey_state[chat_id] = {
@@ -1297,8 +1013,9 @@ class WhatsAppSurveyBot:
                         "survey": new_survey,
                         "last_activity": datetime.now()
                     }
+                    # Send welcome message first
                     await self.send_message_with_retry(chat_id, new_survey.messages["welcome"])
-                    await asyncio.sleep(1.5)
+                    await asyncio.sleep(1.5)  # Add a small delay between messages
                     await self.send_next_question(chat_id)
                 else:
                     await self.send_message_with_retry(
@@ -1306,77 +1023,38 @@ class WhatsAppSurveyBot:
                         "מצטערים, הייתה שגיאה בהתחלת השאלון. נא לנסות שוב."
                     )
                 return
-
+            
+            if chat_id in self.survey_state:
+                state = self.survey_state[chat_id]
+                
+                # Check if we're waiting for a meeting poll response
+                if state.get("waiting_for_meeting_response") and state.get("poll_options"):
+                    if message in ["1", "2"]:
+                        selected_option = state["poll_options"][int(message) - 1]
+                        await self.handle_meeting_poll_response(chat_id, selected_option)
+                        return
+                    else:
+                        await self.send_message_with_retry(chat_id, "אנא השב/י 1 או 2")
+                        return
+                
+                # Regular survey answer handling
+                await self.process_survey_answer(chat_id, {"type": "text", "content": message})
+                
         except Exception as e:
             logger.error(f"Error handling text message: {str(e)}")
-            logger.error(f"Stack trace: {traceback.format_exc()}")
             await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד ההודעה. נא לנסות שוב.")
 
     async def handle_poll_response(self, chat_id: str, poll_data: Dict) -> None:
         """Handle poll response"""
-        try:
-            logger.info(f"Starting handle_poll_response for chat_id: {chat_id}")
-            logger.debug(f"Poll data: {json.dumps(poll_data, ensure_ascii=False)}")
-            
-            if chat_id not in self.survey_state:
-                logger.warning(f"Received poll response for unknown chat_id: {chat_id}")
-                return
+        if chat_id not in self.survey_state:
+            logger.warning(f"Received poll response for unknown chat_id: {chat_id}")
+            return
 
-            state = self.survey_state[chat_id]
-            state['last_activity'] = datetime.now()
+        state = self.survey_state[chat_id]
+        state['last_activity'] = datetime.now()
 
-            # Check if this is a meeting scheduling poll response
-            if state.get("waiting_for_meeting_response"):
-                logger.info("Processing meeting scheduling poll response")
-                selected_options = []
-                if "votes" in poll_data:
-                    for vote in poll_data["votes"]:
-                        if "optionVoters" in vote and chat_id in vote.get("optionVoters", []):
-                            selected_options.append(vote["optionName"])
-                
-                if selected_options:
-                    logger.info(f"Selected meeting option: {selected_options[0]}")
-                    await self.handle_meeting_poll_response(chat_id, selected_options[0])
-                else:
-                    logger.warning("No meeting option selected")
-                return
-
-            # Regular poll handling continues...
-            if "survey" not in state:
-                logger.error(f"Invalid survey state for chat_id {chat_id}: missing survey")
-                return
-                
-            if "current_question" not in state:
-                logger.error(f"Invalid survey state for chat_id {chat_id}: missing current_question")
-                return
-                
-            survey = state["survey"]
-            if state["current_question"] >= len(survey.questions):
-                logger.error(f"Invalid question index {state['current_question']} for chat_id {chat_id}")
-                return
-                
-            current_question = survey.questions[state["current_question"]]
-            question_id = current_question["id"]
-            
-            # Check if current question is a poll question
-            if current_question["type"] != "poll":
-                logger.warning(f"Ignoring poll response as current question {question_id} is not a poll question")
-                return
-                
-            # Check if this poll response matches the current question's name
-            if poll_data.get("name") != current_question["text"]:
-                logger.warning(f"Ignoring poll response as it doesn't match current question. Expected: {current_question['text']}, Got: {poll_data.get('name')}")
-                return
-            
-            logger.info(f"Processing poll response for question: {question_id}")
-            logger.debug(f"Poll data: {json.dumps(poll_data, ensure_ascii=False)}")
-            
-            # Store the last poll response time for multiple choice questions
-            if current_question.get("multipleAnswers", False):
-                current_time = datetime.now()
-                state["last_poll_response"] = current_time
-                state.setdefault("selected_options", set())
-            
+        # Check if this is a meeting scheduling poll response
+        if state.get("waiting_for_meeting_response"):
             selected_options = []
             if "votes" in poll_data:
                 for vote in poll_data["votes"]:
@@ -1384,194 +1062,69 @@ class WhatsAppSurveyBot:
                         selected_options.append(vote["optionName"])
             
             if selected_options:
-                if current_question.get("multipleAnswers", False):
-                    # For multiple choice questions, update the set of selected options
-                    state["selected_options"].update(selected_options)
-                    answer_content = ", ".join(state["selected_options"])
-                    logger.info(f"Updated multiple choice selections: {answer_content}")
-                    
-                    # Save the current selections but don't move to next question yet
-                    await self.process_survey_answer(chat_id, {
-                        "type": "poll",
-                        "content": answer_content,
-                        "is_final": False
-                    })
-                    
-                    # Send a message to inform the user they can select more options
-                    await self.send_message_with_retry(chat_id, "ניתן לבחור אפשרויות נוספות. כשסיימת, המתן 3 שניות והשאלון ימשיך אוטומטית.")
-                    
-                    # Schedule a check to move to the next question after 3 seconds
-                    asyncio.create_task(self.schedule_next_question(chat_id, 3))
-                else:
-                    # For single choice questions, proceed as normal
-                    answer_content = ", ".join(selected_options)
-                    logger.info(f"Poll response processed - Question: {question_id}, Selected options: {answer_content}")
-                    
-                    await self.process_survey_answer(chat_id, {
-                        "type": "poll",
-                        "content": answer_content,
-                        "is_final": True
-                    })
+                await self.handle_meeting_poll_response(chat_id, selected_options[0])
+            return
+
+        # Regular poll handling continues...
+        current_question = state["survey"].questions[state["current_question"]]
+        question_id = current_question["id"]
+        
+        # Check if current question is a poll question
+        if current_question["type"] != "poll":
+            logger.warning(f"Ignoring poll response as current question {question_id} is not a poll question")
+            return
+            
+        # Check if this poll response matches the current question's name
+        if poll_data.get("name") != current_question["text"]:
+            logger.warning(f"Ignoring poll response as it doesn't match current question. Expected: {current_question['text']}, Got: {poll_data.get('name')}")
+            return
+        
+        logger.info(f"Processing poll response for question: {question_id}")
+        logger.debug(f"Poll data: {json.dumps(poll_data, ensure_ascii=False)}")
+        
+        # Store the last poll response time for multiple choice questions
+        if current_question.get("multipleAnswers", False):
+            current_time = datetime.now()
+            state["last_poll_response"] = current_time
+            state.setdefault("selected_options", set())
+        
+        selected_options = []
+        if "votes" in poll_data:
+            for vote in poll_data["votes"]:
+                if "optionVoters" in vote and chat_id in vote.get("optionVoters", []):
+                    selected_options.append(vote["optionName"])
+        
+        if selected_options:
+            if current_question.get("multipleAnswers", False):
+                # For multiple choice questions, update the set of selected options
+                state["selected_options"].update(selected_options)
+                answer_content = ", ".join(state["selected_options"])
+                logger.info(f"Updated multiple choice selections: {answer_content}")
+                
+                # Save the current selections but don't move to next question yet
+                await self.process_survey_answer(chat_id, {
+                    "type": "poll",
+                    "content": answer_content,
+                    "is_final": False
+                })
+                
+                # Send a message to inform the user they can select more options
+                await self.send_message_with_retry(chat_id, "ניתן לבחור אפשרויות נוספות. כשסיימת, המתן 3 שניות והשאלון ימשיך אוטומטית.")
+                
+                # Schedule a check to move to the next question after 3 seconds
+                asyncio.create_task(self.schedule_next_question(chat_id, 3))
             else:
-                logger.warning(f"No valid options selected for chat_id: {chat_id}")
+                # For single choice questions, proceed as normal
+                answer_content = ", ".join(selected_options)
+                logger.info(f"Poll response processed - Question: {question_id}, Selected options: {answer_content}")
                 
-        except Exception as e:
-            logger.error(f"Error handling poll response: {str(e)}")
-            logger.error(f"Stack trace: {traceback.format_exc()}")
-            await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד התשובה. נא לנסות שוב.")
-
-    async def handle_meeting_request(self, chat_id: str) -> None:
-        """טיפול בבקשה לקביעת פגישה"""
-        available_days = self.calendar_manager.get_available_days(datetime.now())
-        
-        # יצירת לוח שנה ויזואלי
-        calendar_view = self._create_calendar_view(available_days)
-        await self.send_message_with_retry(chat_id, 
-            "בחר את היום המועדף לפגישה מהימים הפנויים (מסומנים בכחול):\n\n" + calendar_view)
-        
-        # שמירת מצב הפגישה
-        self.meeting_state[chat_id] = {
-            'state': 'waiting_for_day',
-            'available_days': available_days
-        }
-
-    def _create_calendar_view(self, available_days: List[datetime]) -> str:
-        """יצירת תצוגת לוח שנה ויזואלית"""
-        today = datetime.now()
-        month_start = today.replace(day=1)
-        
-        # כותרת החודש
-        calendar_str = f"{month_start.strftime('%B %Y')}\n"
-        calendar_str += "א  ב  ג  ד  ה  ו  ש\n"
-        
-        # מילוי ימי החודש
-        week = []
-        first_day = month_start.weekday()
-        
-        # רווחים לתחילת החודש
-        for _ in range(first_day):
-            week.append("  ")
-            
-        for day in range(1, 32):
-            try:
-                current = month_start.replace(day=day)
-                if current in available_days:
-                    week.append(f"{day:02d}")
-                else:
-                    week.append("--")
-                    
-                if len(week) == 7:
-                    calendar_str += "  ".join(week) + "\n"
-                    week = []
-            except ValueError:  # חודש נגמר
-                break
-                
-        if week:
-            calendar_str += "  ".join(week)
-            
-        return f"```\n{calendar_str}\n```"
-
-    async def handle_day_selection(self, chat_id: str, message: str) -> None:
-        """טיפול בבחירת יום"""
-        try:
-            selected_day = int(message)
-            state = self.meeting_state.get(chat_id)
-            
-            if not state or state['state'] != 'waiting_for_day':
-                return
-                
-            # מציאת היום הנבחר
-            selected_date = None
-            for day in state['available_days']:
-                if day.day == selected_day:
-                    selected_date = day
-                    break
-                    
-            if not selected_date:
-                await self.send_message_with_retry(chat_id, "נא לבחור יום פנוי מהלוח המוצג")
-                return
-                
-            # קבלת חלונות זמן פנויים
-            slots = self.calendar_manager.get_available_slots(selected_date)
-            slots_message = "בחר שעה מהשעות הפנויות:\n\n"
-            
-            for i, slot in enumerate(slots, 1):
-                slots_message += f"{i}. {slot['start']}-{slot['end']}\n"
-                
-            await self.send_message_with_retry(chat_id, slots_message)
-            
-            # עדכון מצב
-            self.meeting_state[chat_id].update({
-                'state': 'waiting_for_time',
-                'selected_date': selected_date,
-                'available_slots': slots
-            })
-            
-        except ValueError:
-            await self.send_message_with_retry(chat_id, "נא להזין מספר יום תקין")
-
-    async def handle_time_selection(self, chat_id: str, message: str) -> None:
-        """טיפול בבחירת שעה"""
-        try:
-            slot_index = int(message) - 1
-            state = self.meeting_state.get(chat_id)
-            
-            if not state or state['state'] != 'waiting_for_time':
-                return
-                
-            slots = state['available_slots']
-            if slot_index < 0 or slot_index >= len(slots):
-                await self.send_message_with_retry(chat_id, "נא לבחור מספר חלון זמן תקין")
-                return
-                
-            selected_slot = slots[slot_index]
-            selected_date = state['selected_date']
-            
-            # יצירת אובייקט datetime לזמן הנבחר
-            hour, minute = map(int, selected_slot['start'].split(':'))
-            meeting_time = selected_date.replace(hour=hour, minute=minute)
-            
-            # קביעת הפגישה
-            if self.calendar_manager.schedule_meeting(meeting_time):
-                confirmation = (
-                    f"*הפגישה נקבעה בהצלחה!*\n\n"
-                    f"📅 תאריך: {meeting_time.strftime('%d/%m/%Y')}\n"
-                    f"🕒 שעה: {selected_slot['start']}\n"
-                    f"⏱️ משך: 30 דקות\n\n"
-                    f"הפגישה נוספה ליומן שלך ותקבל תזכורת לפני הפגישה."
-                )
-                await self.send_message_with_retry(chat_id, confirmation)
-            else:
-                await self.send_message_with_retry(chat_id, "מצטערים, הייתה בעיה בקביעת הפגישה. נא לנסות שוב.")
-                
-            # ניקוי מצב
-            del self.meeting_state[chat_id]
-            
-        except ValueError:
-            await self.send_message_with_retry(chat_id, "נא להזין מספר חלון זמן תקין")
-
-    async def process_message(self, message_data: Dict) -> None:
-        """עדכון הפונקציה הקיימת לטיפול בהודעות"""
-        chat_id = message_data.get('chatId')
-        message_text = message_data.get('messageText', '').strip()
-        
-        # טיפול בבקשות פגישה
-        if message_text.lower() in ["פגישה", "קביעת פגישה", "תיאום פגישה"]:
-            await self.handle_meeting_request(chat_id)
-            return
-            
-        # טיפול בבחירת יום
-        if chat_id in self.meeting_state and self.meeting_state[chat_id]['state'] == 'waiting_for_day':
-            await self.handle_day_selection(chat_id, message_text)
-            return
-            
-        # טיפול בבחירת שעה
-        if chat_id in self.meeting_state and self.meeting_state[chat_id]['state'] == 'waiting_for_time':
-            await self.handle_time_selection(chat_id, message_text)
-            return
-        
-        # המשך הטיפול הרגיל בהודעות
-        # Process the rest of the message handling logic
+                await self.process_survey_answer(chat_id, {
+                    "type": "poll",
+                    "content": answer_content,
+                    "is_final": True
+                })
+        else:
+            logger.warning(f"No valid options selected for chat_id: {chat_id}")
 
 # Initialize the bot
 logger.info("Initializing WhatsApp Survey Bot...")
@@ -1593,104 +1146,46 @@ async def shutdown_event():
     await bot.cleanup()
     logger.info("Cleanup completed")
 
-@app.post("/webhook")
-async def webhook(request: dict):
-    """Handle incoming webhook from Green API"""
-    try:
-        logger.info("Received webhook request")
-        logger.debug(f"Request data: {json.dumps(request, ensure_ascii=False)}")
-        
-        await handle_webhook(request)
-        return {"status": "success"}
-        
-    except Exception as e:
-        logger.error(f"Error processing webhook: {str(e)}")
-        logger.error(f"Stack trace: {traceback.format_exc()}")
-        return {"status": "error", "message": str(e)}
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy"}
-
+# Webhook handler function
 async def handle_webhook(webhook_data: Dict) -> None:
     """Handle incoming webhook data"""
+    session = None
     try:
-        logger.info("Processing webhook data")
+        logger.info("Received new webhook")
         logger.debug(f"Webhook data: {json.dumps(webhook_data, ensure_ascii=False)}")
         
-        # Validate webhook data structure
-        if not isinstance(webhook_data, dict):
-            logger.error(f"Invalid webhook data type: {type(webhook_data)}")
-            return
-            
-        if "typeWebhook" not in webhook_data:
-            logger.error("Missing typeWebhook in webhook data")
-            return
-            
-        webhook_type = webhook_data["typeWebhook"]
-        if webhook_type != "incomingMessageReceived":
-            logger.debug(f"Ignoring webhook of type: {webhook_type}")
+        if webhook_data["typeWebhook"] != "incomingMessageReceived":
+            logger.debug(f"Ignoring webhook of type: {webhook_data['typeWebhook']}")
             return
 
-        # Extract and validate message data
-        message_data = webhook_data.get("messageData")
-        sender_data = webhook_data.get("senderData")
-        
-        if not message_data or not sender_data:
-            logger.error("Missing message_data or sender_data")
-            return
-            
-        chat_id = sender_data.get("chatId")
-        if not chat_id:
-            logger.error("Missing chatId in sender data")
-            return
-            
-        message_type = message_data.get("typeMessage")
-        if not message_type:
-            logger.error("Missing typeMessage in message data")
-            return
-            
+        message_data = webhook_data["messageData"]
+        sender_data = webhook_data["senderData"]
+        chat_id = sender_data["chatId"]
         sender_name = sender_data.get("senderName", "")
-        logger.info(f"Processing {message_type} from {chat_id} ({sender_name})")
+        
+        logger.info(f"Processing message from {chat_id} ({sender_name})")
+        logger.debug(f"Message type: {message_data['typeMessage']}")
 
-        # Handle different message types
-        if message_type == "textMessage":
-            text_data = message_data.get("textMessageData", {})
-            text = text_data.get("textMessage", "").strip()
-            
-            if not text:
-                logger.warning("Empty text message received")
-                return
-                
-            logger.info(f"Processing text message: {text[:100]}...")  # Log first 100 chars
+        if message_data["typeMessage"] == "textMessage":
+            text = message_data["textMessageData"]["textMessage"]
+            logger.info(f"Received text message: {text[:100]}...")  # Log first 100 chars
             await bot.handle_text_message(chat_id, text, sender_name)
             
-        elif message_type == "audioMessage":
-            file_data = message_data.get("fileMessageData", {})
-            voice_url = file_data.get("downloadUrl")
-            
-            if not voice_url:
-                logger.error("Missing voice message URL")
-                return
-                
-            logger.info(f"Processing voice message from URL: {voice_url}")
+        elif message_data["typeMessage"] == "audioMessage":
+            voice_url = message_data["fileMessageData"]["downloadUrl"]
+            logger.info(f"Received voice message from URL: {voice_url}")
             await bot.handle_voice_message(chat_id, voice_url)
             
-        elif message_type == "pollUpdateMessage":
-            poll_data = message_data.get("pollMessageData")
-            if not poll_data:
-                logger.error("Missing poll message data")
-                return
-                
-            logger.info("Processing poll update")
+        elif message_data["typeMessage"] == "pollUpdateMessage":
+            poll_data = message_data["pollMessageData"]
+            logger.info("Received poll update")
             logger.debug(f"Poll data: {json.dumps(poll_data, ensure_ascii=False)}")
             await bot.handle_poll_response(chat_id, poll_data)
             
-        else:
-            logger.warning(f"Unhandled message type: {message_type}")
-            
     except Exception as e:
-        logger.error(f"Error in handle_webhook: {str(e)}")
+        logger.error(f"Error handling webhook: {str(e)}")
         logger.error(f"Stack trace: {traceback.format_exc()}")
-        # Don't re-raise to keep webhook endpoint running 
+        raise
+    finally:
+        if session and not session.closed:
+            await session.close() 
