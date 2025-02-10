@@ -1232,8 +1232,9 @@ class WhatsAppSurveyBot:
                 else:
                     logger.error(f"Invalid survey state for {chat_id}: {state}")
                     del self.survey_state[chat_id]
+                    return
 
-            # Then check if we're in the middle of scheduling a meeting
+            # If no active survey, check if in meeting scheduling state
             if chat_id in self.meeting_state:
                 meeting_state = self.meeting_state[chat_id]
                 if meeting_state['state'] == 'waiting_for_day':
@@ -1245,36 +1246,36 @@ class WhatsAppSurveyBot:
                     await self.handle_time_selection(chat_id, message)
                     return
 
+            # If no active survey or meeting, check for new requests
             # Check for meeting request keywords
             if message.lower() in ["פגישה", "קביעת פגישה", "תיאום פגישה"]:
                 logger.info("Handling new meeting request")
                 await self.handle_meeting_request(chat_id)
                 return
 
-            # Only check for new survey trigger if not in any active state
-            if chat_id not in self.survey_state and chat_id not in self.meeting_state:
-                logger.info("Checking for new survey trigger")
-                new_survey = self.get_survey_by_trigger(message)
-                if new_survey:
-                    logger.info(f"Found new survey trigger: {new_survey.name}")
-                    record_id = self.create_initial_record(chat_id, sender_name, new_survey)
-                    if record_id:
-                        self.survey_state[chat_id] = {
-                            "current_question": 0,
-                            "answers": {},
-                            "record_id": record_id,
-                            "survey": new_survey,
-                            "last_activity": datetime.now()
-                        }
-                        await self.send_message_with_retry(chat_id, new_survey.messages["welcome"])
-                        await asyncio.sleep(1.5)
-                        await self.send_next_question(chat_id)
-                    else:
-                        await self.send_message_with_retry(
-                            chat_id, 
-                            "מצטערים, הייתה שגיאה בהתחלת השאלון. נא לנסות שוב."
-                        )
-                    return
+            # Finally check for new survey trigger
+            logger.info("Checking for new survey trigger")
+            new_survey = self.get_survey_by_trigger(message)
+            if new_survey:
+                logger.info(f"Found new survey trigger: {new_survey.name}")
+                record_id = self.create_initial_record(chat_id, sender_name, new_survey)
+                if record_id:
+                    self.survey_state[chat_id] = {
+                        "current_question": 0,
+                        "answers": {},
+                        "record_id": record_id,
+                        "survey": new_survey,
+                        "last_activity": datetime.now()
+                    }
+                    await self.send_message_with_retry(chat_id, new_survey.messages["welcome"])
+                    await asyncio.sleep(1.5)
+                    await self.send_next_question(chat_id)
+                else:
+                    await self.send_message_with_retry(
+                        chat_id, 
+                        "מצטערים, הייתה שגיאה בהתחלת השאלון. נא לנסות שוב."
+                    )
+                return
 
         except Exception as e:
             logger.error(f"Error handling text message: {str(e)}")
