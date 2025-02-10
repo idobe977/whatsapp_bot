@@ -558,26 +558,12 @@ class WhatsAppSurveyBot:
             return "לא הצלחנו ליצור סיכום כרגע."
 
     def clean_text_for_airtable(self, text: str) -> str:
-        """Clean text by removing emojis and replacing special characters for Airtable compatibility"""
+        """Clean text by replacing special characters for Airtable compatibility"""
         if not text:
             return text
             
-        # First replace known emojis and special characters
-        for char, replacement in self.emoji_mapping.items():
-            text = text.replace(char, replacement)
-            
-        # Then remove any remaining emojis using regex
-        # This pattern matches most emoji characters
-        emoji_pattern = re.compile("["
-            u"\U0001F600-\U0001F64F"  # emoticons
-            u"\U0001F300-\U0001F5FF"  # symbols & pictographs
-            u"\U0001F680-\U0001F6FF"  # transport & map symbols
-            u"\U0001F1E0-\U0001F1FF"  # flags (iOS)
-            u"\U00002702-\U000027B0"
-            u"\U000024C2-\U0001F251"
-            "]+", flags=re.UNICODE)
-        
-        text = emoji_pattern.sub('', text)
+        # Replace various types of dashes with regular dash
+        text = text.replace('–', '-').replace('—', '-').replace('‒', '-').replace('―', '-')
         
         # Remove multiple spaces and trim
         text = ' '.join(text.split())
@@ -996,30 +982,41 @@ class WhatsAppSurveyBot:
                     await self.send_message_with_retry(chat_id, "השאלון הופסק. תודה על זמנך! 🙏")
                 return
             
-            if chat_id not in self.survey_state:
-                # Check if this is a trigger for a new survey
-                survey = self.get_survey_by_trigger(message)
-                if survey:
-                    # Create initial record and start survey
-                    record_id = self.create_initial_record(chat_id, sender_name, survey)
-                    if record_id:
-                        self.survey_state[chat_id] = {
-                            "current_question": 0,
-                            "answers": {},
-                            "record_id": record_id,
-                            "survey": survey,
-                            "last_activity": datetime.now()
-                        }
-                        # Send welcome message first
-                        await self.send_message_with_retry(chat_id, survey.messages["welcome"])
-                        await asyncio.sleep(1.5)  # Add a small delay between messages
-                        await self.send_next_question(chat_id)
+            # Check if this is a trigger for a new survey
+            new_survey = self.get_survey_by_trigger(message)
+            if new_survey:
+                # If user is in an existing survey that's completed, allow starting new one
+                if chat_id in self.survey_state:
+                    state = self.survey_state[chat_id]
+                    if state["current_question"] >= len(state["survey"].questions):
+                        del self.survey_state[chat_id]
                     else:
-                        await self.send_message_with_retry(
-                            chat_id, 
-                            "מצטערים, הייתה שגיאה בהתחלת השאלון. נא לנסות שוב."
-                        )
-            else:
+                        # If in middle of survey, process as regular answer
+                        await self.process_survey_answer(chat_id, {"type": "text", "content": message})
+                        return
+                
+                # Create initial record and start new survey
+                record_id = self.create_initial_record(chat_id, sender_name, new_survey)
+                if record_id:
+                    self.survey_state[chat_id] = {
+                        "current_question": 0,
+                        "answers": {},
+                        "record_id": record_id,
+                        "survey": new_survey,
+                        "last_activity": datetime.now()
+                    }
+                    # Send welcome message first
+                    await self.send_message_with_retry(chat_id, new_survey.messages["welcome"])
+                    await asyncio.sleep(1.5)  # Add a small delay between messages
+                    await self.send_next_question(chat_id)
+                else:
+                    await self.send_message_with_retry(
+                        chat_id, 
+                        "מצטערים, הייתה שגיאה בהתחלת השאלון. נא לנסות שוב."
+                    )
+                return
+            
+            if chat_id in self.survey_state:
                 state = self.survey_state[chat_id]
                 
                 # Check if we're waiting for a meeting poll response
@@ -1034,6 +1031,7 @@ class WhatsAppSurveyBot:
                 
                 # Regular survey answer handling
                 await self.process_survey_answer(chat_id, {"type": "text", "content": message})
+                
         except Exception as e:
             logger.error(f"Error handling text message: {str(e)}")
             await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד ההודעה. נא לנסות שוב.")
