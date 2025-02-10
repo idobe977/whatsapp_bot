@@ -8,7 +8,7 @@
     "התחל שאלון",
     "אפיון עסקי",
     "שאלון אפיון עסקי"
-  ],
+],
   "airtable": {
     "table_id": "tbloFfjqiznQ13LHs",
     "base_id": "appjvjnGLFopOf75b"
@@ -39,6 +39,7 @@
       "include_recommendations": true
     }
   },
+
   "questions": [
     {
       "id": "שם מלא",
@@ -147,19 +148,7 @@
         "type": "empathetic",
         "enabled": false
       }
-    },
-    {
-      "id": "מעוניין לקבוע פגישה",
-      "type": "poll",
-      "text": "תודה רבה על המידע המעמיק! 🙏\n\nאשמח להיפגש ולדבר על הפתרונות שיכולים לעזור לך.\n*האם תרצה/י לקבוע פגישה?* 📅",
-      "options": [
-        "כן, אשמח כבר לקבוע זמן לפגישה 😊",
-        "לא כרגע, אשמח שתזכיר/י לי בהמשך"
-      ],
-      "reflection": {
-        "type": "empathetic",
-        "enabled": false
-      }
     }
-  ]
+    ]
+
 }
