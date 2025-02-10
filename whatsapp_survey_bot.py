@@ -593,7 +593,8 @@ class WhatsAppSurveyBot:
                 formatted_answer = answer["content"]
                 if current_question["type"] == "poll":
                     formatted_answer = answer["content"].split(", ")
-                    formatted_answer = [self.clean_text_for_airtable(opt) for opt in formatted_answer]
+                    # For poll answers, strip emojis and clean text
+                    formatted_answer = [opt.split('⚡')[0].split('⏱️')[0].split('⏰')[0].strip() for opt in formatted_answer]
                     formatted_answer = formatted_answer[0] if formatted_answer else ""
                 else:
                     formatted_answer = self.clean_text_for_airtable(formatted_answer)
