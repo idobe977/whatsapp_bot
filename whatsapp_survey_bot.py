@@ -601,7 +601,51 @@ class WhatsAppSurveyBot:
                 await asyncio.sleep(1.5)
             
             if airtable_success and answer.get("is_final", True):
-                state["current_question"] += 1
+                # Handle flow logic
+                next_question_id = None
+                custom_message = None
+                
+                if "flow" in current_question:
+                    flow = current_question["flow"]
+                    user_answer = answer["content"]
+                    
+                    # For poll questions, get the full answer text
+                    if current_question["type"] == "poll":
+                        user_answer = user_answer.split(", ")[0]  # Get first selected option
+                    
+                    # Check if conditions
+                    if "if" in flow:
+                        if_condition = flow["if"]
+                        if user_answer == if_condition["answer"]:
+                            next_question_id = if_condition["then"].get("goto")
+                            custom_message = if_condition["then"].get("say")
+                        else:
+                            # Check else_if conditions
+                            for else_if in flow.get("else_if", []):
+                                if user_answer == else_if["answer"]:
+                                    next_question_id = else_if["then"].get("goto")
+                                    custom_message = else_if["then"].get("say")
+                                    break
+                    # Check for simple then flow
+                    elif "then" in flow:
+                        next_question_id = flow["then"].get("goto")
+                        custom_message = flow["then"].get("say")
+                
+                # Send custom message if exists
+                if custom_message:
+                    await self.send_message_with_retry(chat_id, custom_message)
+                    await asyncio.sleep(1.5)
+                
+                # Find next question index
+                if next_question_id:
+                    next_index = next((i for i, q in enumerate(survey.questions) if q["id"] == next_question_id), None)
+                    if next_index is not None:
+                        state["current_question"] = next_index
+                    else:
+                        state["current_question"] += 1
+                else:
+                    state["current_question"] += 1
+                
                 state.pop("selected_options", None)
                 state.pop("last_poll_response", None)
                 
@@ -752,6 +796,26 @@ class WhatsAppSurveyBot:
                 del self.survey_state[chat_id]
                 logger.info("State cleaned up successfully")
 
+    async def get_airtable_field_value(self, record_id: str, field_name: str, survey: SurveyDefinition) -> Optional[str]:
+        """Get a specific field value from an Airtable record"""
+        try:
+            # Check cache first
+            cached_record = self.get_cached_airtable_record(record_id, survey.airtable_table_id)
+            if cached_record and field_name in cached_record:
+                return cached_record[field_name]
+            
+            # If not in cache, fetch from Airtable
+            table = self.airtable.table(AIRTABLE_BASE_ID, survey.airtable_table_id)
+            record = table.get(record_id)
+            if record and "fields" in record and field_name in record["fields"]:
+                # Update cache
+                self.cache_airtable_record(record_id, survey.airtable_table_id, record["fields"])
+                return record["fields"][field_name]
+            return None
+        except Exception as e:
+            logger.error(f"Error getting Airtable field value: {e}")
+            return None
+
     async def send_next_question(self, chat_id: str) -> None:
         """Send the next survey question"""
         state = self.survey_state.get(chat_id)
@@ -761,13 +825,27 @@ class WhatsAppSurveyBot:
         survey = state["survey"]
         if state["current_question"] < len(survey.questions):
             question = survey.questions[state["current_question"]]
+            
+            # Check if question text contains Airtable field placeholders
+            question_text = question["text"]
+            if "{{" in question_text and "}}" in question_text:
+                try:
+                    # Find all placeholders in format {{field_name}}
+                    placeholders = re.findall(r'\{\{(.*?)\}\}', question_text)
+                    for field_name in placeholders:
+                        field_value = await self.get_airtable_field_value(state["record_id"], field_name, survey)
+                        if field_value:
+                            question_text = question_text.replace(f"{{{{{field_name}}}}}", str(field_value))
+                except Exception as e:
+                    logger.error(f"Error processing Airtable field placeholders: {e}")
+            
             if question["type"] == "poll":
-                response = await self.send_poll(chat_id, question)
+                response = await self.send_poll(chat_id, {**question, "text": question_text})
                 if "error" in response:
                     await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בשליחת השאלה. נא לנסות שוב.")
                     return
             else:
-                response = await self.send_message_with_retry(chat_id, question["text"])
+                response = await self.send_message_with_retry(chat_id, question_text)
                 if "error" in response:
                     return
         else:
