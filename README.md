@@ -1,15 +1,35 @@
 # WhatsApp Survey Bot
 
-A WhatsApp bot that conducts surveys and manages responses using Green API and Airtable.
+A WhatsApp bot that conducts dynamic surveys and manages responses using Green API, Airtable and Gemini AI.
 
 ## Features
 
-- Multiple survey types support (Business, Research, Satisfaction)
-- Voice message transcription
-- Poll support
+- Dynamic survey loading from JSON files
+- Multiple survey types support
+- Voice message transcription using Gemini AI
+- Poll support with single and multiple choice options
+- Conditional flow logic based on user responses
+- Dynamic text replacement with Airtable field values
 - Automatic meeting scheduling
-- Response storage in Airtable
+- Response storage in Airtable with caching
 - Automatic summary generation using Gemini AI
+- Empathetic and professional AI-powered reflections
+- Timeout handling for inactive sessions
+
+## Survey Features
+
+- JSON-based survey definition
+- Support for text questions and polls
+- Dynamic question flow based on answers
+- Custom messages and reflections per question
+- Airtable field value interpolation using {{field_name}} syntax
+- Multiple answer types:
+  - Text input
+  - Voice messages with automatic transcription
+  - Single choice polls
+  - Multiple choice polls
+- Conditional logic flow with if/else_if conditions
+- Custom messages based on user responses
 
 ## Setup
 
@@ -36,7 +56,40 @@ AIRTABLE_RESEARCH_SURVEY_TABLE_ID=your_research_table_id
 AIRTABLE_SATISFACTION_SURVEY_TABLE_ID=your_satisfaction_table_id
 ```
 
-4. Run the server
+4. Create your survey definitions in the `surveys` directory using JSON format:
+```json
+{
+  "name": "Survey Name",
+  "trigger_phrases": ["trigger1", "trigger2"],
+  "airtable": {
+    "base_id": "your_base_id",
+    "table_id": "your_table_id"
+  },
+  "questions": [
+    {
+      "id": "question_id",
+      "type": "text/poll",
+      "text": "Question text {{airtable_field}}",
+      "options": ["option1", "option2"],
+      "reflection": {
+        "type": "empathetic/professional",
+        "enabled": true
+      },
+      "flow": {
+        "if": {
+          "answer": "specific_answer",
+          "then": {
+            "say": "Custom message",
+            "goto": "next_question_id"
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+5. Run the server
 ```bash
 uvicorn server:app --reload
 ```
@@ -53,7 +106,7 @@ This project is configured for deployment on Render.com. To deploy:
 
 ## Environment Variables
 
-Make sure to set all required environment variables in your Render dashboard:
+Make sure to set all required environment variables:
 
 - `ID_INSTANCE`
 - `API_TOKEN_INSTANCE`
@@ -66,18 +119,32 @@ Make sure to set all required environment variables in your Render dashboard:
 
 ## תכונות עיקריות
 
-- ניהול שאלון אפיון מובנה
-- תמיכה בהודעות טקסט והקלטות קוליות
+- טעינה דינמית של שאלונים מקבצי JSON
+- תמיכה במספר סוגי שאלונים
 - תמלול אוטומטי של הקלטות קוליות באמצעות Gemini AI
-- שמירת תשובות אוטומטית ב-Airtable
-- ממשק REST API מבוסס FastAPI
+- תמיכה בסקרים עם בחירה יחידה או מרובה
+- לוגיקת זרימה מותנית בהתאם לתשובות המשתמש
+- החלפת טקסט דינמית עם ערכים מ-Airtable
+- קביעת פגישות אוטומטית
+- שמירת תשובות ב-Airtable עם מטמון
+- יצירת סיכום אוטומטי באמצעות Gemini AI
+- תגובות AI אמפתיות ומקצועיות
+- טיפול בפסקי זמן לשיחות לא פעילות
 
-## דרישות מערכת
+## מבנה השאלון
 
-- Python 3.9+
-- חשבון Green API לממשק וואטסאפ
-- חשבון Airtable
-- מפתח API של Google (Gemini)
+- הגדרת שאלון מבוססת JSON
+- תמיכה בשאלות טקסט וסקרים
+- זרימת שאלות דינמית בהתאם לתשובות
+- הודעות ותגובות מותאמות אישית לכל שאלה
+- שילוב ערכים מ-Airtable באמצעות תחביר {{שם_השדה}}
+- סוגי תשובות מרובים:
+  - קלט טקסט
+  - הודעות קוליות עם תמלול אוטומטי
+  - סקרים עם בחירה יחידה
+  - סקרים עם בחירה מרובה
+- זרימת לוגיקה מותנית עם תנאי if/else_if
+- הודעות מותאמות אישית בהתאם לתשובות המשתמש
 
 ## התקנה
 
@@ -102,6 +169,39 @@ AIRTABLE_BASE_ID=your_airtable_base_id
 AIRTABLE_TABLE_ID=your_airtable_table_id
 ```
 
+4. צור את הגדרות השאלון בתיקיית `surveys` בפורמט JSON:
+```json
+{
+  "name": "שם השאלון",
+  "trigger_phrases": ["מילת_טריגר1", "מילת_טריגר2"],
+  "airtable": {
+    "base_id": "מזהה_בסיס",
+    "table_id": "מזהה_טבלה"
+  },
+  "questions": [
+    {
+      "id": "מזהה_שאלה",
+      "type": "text/poll",
+      "text": "טקסט השאלה {{שדה_אירטייבל}}",
+      "options": ["אפשרות1", "אפשרות2"],
+      "reflection": {
+        "type": "empathetic/professional",
+        "enabled": true
+      },
+      "flow": {
+        "if": {
+          "answer": "תשובה_ספציפית",
+          "then": {
+            "say": "הודעה מותאמת",
+            "goto": "מזהה_שאלה_הבאה"
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
 ## הרצה מקומית
 
 הרץ את השרת:
@@ -110,43 +210,6 @@ python server.py
 ```
 
 השרת יתחיל לרוץ על פורט 8000.
-
-## דיפלוי ל-Render.com
-
-1. צור חשבון ב-Render.com
-2. צור Web Service חדש
-3. התחבר לריפוזיטורי שלך
-4. הגדר את המשתנים הבאים:
-   - Build Command: `pip install -r requirements.txt`
-   - Start Command: `uvicorn server:app --host 0.0.0.0 --port $PORT`
-5. הוסף את משתני הסביבה מקובץ `.env`
-
-## דיפלוי ל-AWS EC2
-
-1. צור מופע EC2 חדש
-2. התחבר למופע דרך SSH
-3. התקן את הדרישות:
-```bash
-sudo apt-get update
-sudo apt-get install python3-pip
-git clone <repository-url>
-cd whatsapp-survey-bot
-pip3 install -r requirements.txt
-```
-
-4. הגדר את משתני הסביבה:
-```bash
-sudo nano /etc/environment
-# הוסף את כל המשתנים מקובץ .env
-```
-
-5. הרץ את השרת עם PM2:
-```bash
-sudo npm install -g pm2
-pm2 start "python3 server.py" --name whatsapp-bot
-pm2 save
-pm2 startup
-```
 
 ## נקודות קצה
 
