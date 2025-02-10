@@ -1044,6 +1044,27 @@ class WhatsAppSurveyBot:
             logger.error(f"Error handling text message: {str(e)}")
             await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד ההודעה. נא לנסות שוב.")
 
+    async def process_poll_answer(self, chat_id: str, answer_content: str, question_id: str) -> None:
+        """Process poll answer and update Airtable"""
+        try:
+            state = self.survey_state[chat_id]
+            survey = state["survey"]
+            
+            # Update Airtable with the full answer
+            await self.update_airtable_record(
+                state["record_id"],
+                {question_id: answer_content},  # Use the full answer without processing
+                survey
+            )
+            
+            # Move to next question
+            state["current_question"] += 1
+            await self.send_next_question(chat_id)
+            
+        except Exception as e:
+            logger.error(f"Error processing poll answer: {str(e)}")
+            await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד התשובה. נא לנסות שוב.")
+
     async def handle_poll_response(self, chat_id: str, poll_data: Dict) -> None:
         """Handle poll response"""
         if chat_id not in self.survey_state:
@@ -1082,12 +1103,6 @@ class WhatsAppSurveyBot:
         logger.info(f"Processing poll response for question: {question_id}")
         logger.debug(f"Poll data: {json.dumps(poll_data, ensure_ascii=False)}")
         
-        # Store the last poll response time for multiple choice questions
-        if current_question.get("multipleAnswers", False):
-            current_time = datetime.now()
-            state["last_poll_response"] = current_time
-            state.setdefault("selected_options", set())
-        
         selected_options = []
         if "votes" in poll_data:
             for vote in poll_data["votes"]:
@@ -1095,34 +1110,9 @@ class WhatsAppSurveyBot:
                     selected_options.append(vote["optionName"])
         
         if selected_options:
-            if current_question.get("multipleAnswers", False):
-                # For multiple choice questions, update the set of selected options
-                state["selected_options"].update(selected_options)
-                answer_content = ", ".join(state["selected_options"])
-                logger.info(f"Updated multiple choice selections: {answer_content}")
-                
-                # Save the current selections but don't move to next question yet
-                await self.process_survey_answer(chat_id, {
-                    "type": "poll",
-                    "content": answer_content,
-                    "is_final": False
-                })
-                
-                # Send a message to inform the user they can select more options
-                await self.send_message_with_retry(chat_id, "ניתן לבחור אפשרויות נוספות. כשסיימת, המתן 3 שניות והשאלון ימשיך אוטומטית.")
-                
-                # Schedule a check to move to the next question after 3 seconds
-                asyncio.create_task(self.schedule_next_question(chat_id, 3))
-            else:
-                # For single choice questions, proceed as normal
-                answer_content = ", ".join(selected_options)
-                logger.info(f"Poll response processed - Question: {question_id}, Selected options: {answer_content}")
-                
-                await self.process_survey_answer(chat_id, {
-                    "type": "poll",
-                    "content": answer_content,
-                    "is_final": True
-                })
+            # Use the full selected option text without processing
+            answer_content = selected_options[0]
+            await self.process_poll_answer(chat_id, answer_content, question_id)
         else:
             logger.warning(f"No valid options selected for chat_id: {chat_id}")
 
