@@ -55,7 +55,7 @@
       "type": "text",
       "text": "מה שם העסק שלך? 🏢",
       "reflection": {
-        "type": "empathetic",
+        "type": "professional",
         "enabled": true
       }
     },
@@ -82,7 +82,7 @@
       "type": "text",
       "text": "מה שגרת העבודה שלך? ⚡\nמהם התהליכים המרכזיים המתרחשים בעסק?",
       "reflection": {
-        "type": "empathetic",
+        "type": "professional",
         "enabled": true
       }
     },
@@ -109,7 +109,7 @@
       "type": "text",
       "text": "מה המפתח לחוויית לקוח מוצלחת בעיניך? 💫",
       "reflection": {
-        "type": "empathetic",
+        "type": "professional",
         "enabled": true
       }
     },
@@ -136,7 +136,7 @@
       "type": "text",
       "text": "מה הדבר שהכי חשוב לך בתהליך העבודה איתי? 🎯",
       "reflection": {
-        "type": "empathetic",
+        "type": "professional",
         "enabled": true
       }
     },
@@ -146,8 +146,9 @@
       "text": "יש משהו נוסף שחשוב לך שאדע או שנתייחס אליו? 💭",
       "reflection": {
         "type": "empathetic",
-        "enabled": true
+        "enabled": false
       }
     }
     ]
+
 }
