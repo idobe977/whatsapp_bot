@@ -1186,17 +1186,14 @@ class WhatsAppSurveyBot:
                     await self.handle_time_selection(chat_id, message)
                     return
             
-            # Then check for meeting request keywords
-            if message.lower() in ["פגישה", "קביעת פגישה", "תיאום פגישה"]:
-                logger.info("Handling new meeting request")
-                await self.handle_meeting_request(chat_id)
-                return
-            
-            # Check for survey exit command
-            if message.lower() == "הפסקת שאלון":
-                logger.info("Processing survey exit command")
-                if chat_id in self.survey_state:
-                    state = self.survey_state[chat_id]
+            # Then check if user is in an active survey
+            if chat_id in self.survey_state:
+                state = self.survey_state[chat_id]
+                logger.info(f"User in active survey state, current question: {state.get('current_question')}")
+                
+                # Check for survey exit command
+                if message.lower() == "הפסקת שאלון":
+                    logger.info("Processing survey exit command")
                     survey = state["survey"]
                     try:
                         await self.update_airtable_record(
@@ -1209,23 +1206,32 @@ class WhatsAppSurveyBot:
                     
                     del self.survey_state[chat_id]
                     await self.send_message_with_retry(chat_id, "השאלון הופסק. תודה על זמנך! 🙏")
+                    return
+                
+                # Check if we're waiting for a meeting poll response
+                if state.get("waiting_for_meeting_response") and state.get("poll_options"):
+                    if message in ["1", "2"]:
+                        selected_option = state["poll_options"][int(message) - 1]
+                        await self.handle_meeting_poll_response(chat_id, selected_option)
+                    else:
+                        await self.send_message_with_retry(chat_id, "אנא השב/י 1 או 2")
+                    return
+                
+                # Process regular survey answer
+                logger.info(f"Processing regular survey answer for question {state['current_question']}")
+                await self.process_survey_answer(chat_id, {"type": "text", "content": message})
+                return
+            
+            # Check for meeting request keywords
+            if message.lower() in ["פגישה", "קביעת פגישה", "תיאום פגישה"]:
+                logger.info("Handling new meeting request")
+                await self.handle_meeting_request(chat_id)
                 return
             
             # Check if this is a trigger for a new survey
             new_survey = self.get_survey_by_trigger(message)
             if new_survey:
                 logger.info(f"Found new survey trigger: {new_survey.name}")
-                # If user is in an existing survey that's completed, allow starting new one
-                if chat_id in self.survey_state:
-                    state = self.survey_state[chat_id]
-                    if state["current_question"] >= len(state["survey"].questions):
-                        del self.survey_state[chat_id]
-                    else:
-                        # If in middle of survey, process as regular answer
-                        logger.info("User in middle of survey, processing as answer")
-                        await self.process_survey_answer(chat_id, {"type": "text", "content": message})
-                        return
-                
                 # Create initial record and start new survey
                 logger.info("Creating initial record for new survey")
                 record_id = self.create_initial_record(chat_id, sender_name, new_survey)
@@ -1248,23 +1254,6 @@ class WhatsAppSurveyBot:
                     )
                 return
             
-            # Handle regular survey answer if in survey state
-            if chat_id in self.survey_state:
-                state = self.survey_state[chat_id]
-                logger.info(f"Processing regular survey answer for question {state['current_question']}")
-                
-                # Check if we're waiting for a meeting poll response
-                if state.get("waiting_for_meeting_response") and state.get("poll_options"):
-                    if message in ["1", "2"]:
-                        selected_option = state["poll_options"][int(message) - 1]
-                        await self.handle_meeting_poll_response(chat_id, selected_option)
-                    else:
-                        await self.send_message_with_retry(chat_id, "אנא השב/י 1 או 2")
-                    return
-                
-                # Regular survey answer handling
-                await self.process_survey_answer(chat_id, {"type": "text", "content": message})
-                
         except Exception as e:
             logger.error(f"Error handling text message: {str(e)}")
             logger.error(f"Stack trace: {traceback.format_exc()}")
