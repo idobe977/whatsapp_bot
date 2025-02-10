@@ -12,20 +12,6 @@
     "base_id": "appjvjnGLFopOf75b",
     "table_id": "tblho5wUHcU8bGJWU"
   },
-  "meeting_settings": {
-    "days_ahead": 7,
-    "working_hours": {
-      "start": "09:00",
-      "end": "14:00"
-    },
-    "working_days": [0, 1, 2, 3, 4],
-    "meeting_duration": 30,
-    "buffer_between_meetings": 15,
-    "timezone": "Asia/Jerusalem",
-    "meeting_title": "פגישת ייעוץ אוטומציה",
-    "meeting_description": "פגישת ייעוץ לבחינת פתרונות אוטומציה לעסק"
-  },
-
   "messages": {
     "welcome": "*תודה שהקדשת מזמנך!* 🙏\nהתשובות שלך יעזרו לי ללמוד ולהבין את האתגרים המרכזיים של עסקים כמוך. 🎯\n*אשמח להעניק לך פגישת אפיון עסקי במתנה* 🎁",
     "completion": {
