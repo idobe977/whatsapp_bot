@@ -1198,7 +1198,9 @@ class WhatsAppSurveyBot:
             if chat_id in self.survey_state:
                 state = self.survey_state[chat_id]
                 logger.info(f"Found active survey state for {chat_id}")
-                logger.debug(f"Current survey state: {json.dumps(state, ensure_ascii=False)}")
+                # Create a copy of state without the survey object for logging
+                log_state = {k: v for k, v in state.items() if k != 'survey'}
+                logger.debug(f"Current survey state: {json.dumps(log_state, ensure_ascii=False)}")
                 
                 # Check for stop survey command
                 if message.lower() in ["הפסקת שאלון", "עצור שאלון", "ביטול שאלון", "stop"]:
