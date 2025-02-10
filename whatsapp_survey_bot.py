@@ -61,7 +61,7 @@ logger.info(f"Configured Green API with instance ID: {ID_INSTANCE}")
 # Gemini Configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-2.0-flash-exp")
+model = genai.GenerativeModel("gemini-2.0-pro-exp-02-05")
 logger.info("Configured Gemini API")
 
 # Airtable Configuration
@@ -408,11 +408,24 @@ class WhatsAppSurveyBot:
                 logger.error(f"No prompt found for reflection type: {reflection_type}")
                 return None
 
+            # Get previous question and answer if available
+            current_question_index = next((i for i, q in enumerate(survey.questions) if q["text"] == question), -1)
+            previous_context = ""
+            if current_question_index > 0:
+                previous_question = survey.questions[current_question_index - 1]
+                previous_answer = self.survey_state.get(question_data.get("chat_id", ""), {}).get("answers", {}).get(previous_question["id"])
+                if previous_answer:
+                    previous_context = f"""
+                    שאלה קודמת: {previous_question["text"]}
+                    תשובה קודמת: {previous_answer}
+                    """
+
             prompt = f"""
             {reflection_prompt}
             
-            שאלה: {question}
-            תשובה: {answer}
+            {previous_context}
+            שאלה נוכחית: {question}
+            תשובה נוכחית: {answer}
             """
             
             response = model.generate_content(prompt)
@@ -505,7 +518,12 @@ class WhatsAppSurveyBot:
             
             # Run tasks concurrently
             tasks = [
-                self.generate_response_reflection(current_question["text"], answer["content"], survey, current_question),
+                self.generate_response_reflection(
+                    current_question["text"], 
+                    answer["content"], 
+                    survey, 
+                    {**current_question, "chat_id": chat_id}
+                ),
                 self.update_airtable_record(state["record_id"], update_data, survey)
             ]
             reflection, airtable_success = await asyncio.gather(*tasks)
