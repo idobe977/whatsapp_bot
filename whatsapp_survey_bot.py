@@ -595,6 +595,9 @@ class WhatsAppSurveyBot:
             current_question = survey.questions[state["current_question"]]
             question_id = current_question["id"]
             
+            logger.info(f"Processing answer for chat_id: {chat_id}, question: {question_id}")
+            logger.debug(f"Answer content: {json.dumps(answer, ensure_ascii=False)}")
+            
             # Save answer to state
             if "answers" not in state:
                 state["answers"] = {}
@@ -611,9 +614,11 @@ class WhatsAppSurveyBot:
                     formatted_answer = self.clean_text_for_airtable(formatted_answer)
                 
                 state["answers"][question_id] = formatted_answer
+                logger.info(f"Formatted answer: {formatted_answer}")
                 logger.debug(f"Updated state answers: {json.dumps(state['answers'], ensure_ascii=False)}")
             except Exception as e:
                 logger.error(f"Error formatting answer: {str(e)}")
+                logger.error(f"Stack trace: {traceback.format_exc()}")
                 await self.send_message_with_retry(
                     chat_id, 
                     survey.messages["error"]
@@ -625,39 +630,55 @@ class WhatsAppSurveyBot:
             if state["current_question"] > 0:
                 update_data["סטטוס"] = "בטיפול"
             
+            logger.info(f"Updating Airtable with data: {json.dumps(update_data, ensure_ascii=False)}")
+            
             # Run tasks concurrently
-            tasks = [
-                self.generate_response_reflection(
-                    current_question["text"], 
-                    answer["content"], 
-                    survey, 
-                    {**current_question, "chat_id": chat_id}
-                ),
-                self.update_airtable_record(state["record_id"], update_data, survey)
-            ]
-            reflection, airtable_success = await asyncio.gather(*tasks)
-            
-            if reflection:
-                await self.send_message_with_retry(chat_id, reflection)
-                await asyncio.sleep(1.5)
-            
-            if airtable_success:
-                # Move to next question
-                state["current_question"] += 1
-                state.pop("selected_options", None)
-                state.pop("last_poll_response", None)
+            try:
+                tasks = [
+                    self.generate_response_reflection(
+                        current_question["text"], 
+                        answer["content"], 
+                        survey, 
+                        {**current_question, "chat_id": chat_id}
+                    ),
+                    self.update_airtable_record(state["record_id"], update_data, survey)
+                ]
+                reflection, airtable_success = await asyncio.gather(*tasks)
                 
-                if state["current_question"] >= len(survey.questions):
-                    asyncio.create_task(
-                        self.update_airtable_record(
-                            state["record_id"], 
-                            {"סטטוס": "הושלם"}, 
-                            survey
+                logger.info(f"Airtable update success: {airtable_success}")
+                if reflection:
+                    logger.info("Sending reflection message")
+                    await self.send_message_with_retry(chat_id, reflection)
+                    await asyncio.sleep(1.5)
+                
+                if airtable_success:
+                    # Move to next question
+                    state["current_question"] += 1
+                    state.pop("selected_options", None)
+                    state.pop("last_poll_response", None)
+                    
+                    logger.info(f"Moving to next question: {state['current_question']}")
+                    
+                    if state["current_question"] >= len(survey.questions):
+                        logger.info("Survey completed, updating final status")
+                        asyncio.create_task(
+                            self.update_airtable_record(
+                                state["record_id"], 
+                                {"סטטוס": "הושלם"}, 
+                                survey
+                            )
                         )
+                    
+                    await self.send_next_question(chat_id)
+                else:
+                    logger.error("Failed to update Airtable, sending error message")
+                    await self.send_message_with_retry(
+                        chat_id, 
+                        survey.messages["error"]
                     )
-                
-                await self.send_next_question(chat_id)
-            else:
+            except Exception as task_error:
+                logger.error(f"Error in concurrent tasks: {str(task_error)}")
+                logger.error(f"Stack trace: {traceback.format_exc()}")
                 await self.send_message_with_retry(
                     chat_id, 
                     survey.messages["error"]
@@ -890,24 +911,36 @@ class WhatsAppSurveyBot:
     async def update_airtable_record(self, record_id: str, data: Dict, survey: SurveyDefinition) -> bool:
         """Update Airtable record asynchronously"""
         try:
+            logger.info(f"Updating Airtable record {record_id} with data: {json.dumps(data, ensure_ascii=False)}")
+            
             # Get cached record if available
             cached_record = self.get_cached_airtable_record(record_id, survey.airtable_table_id)
             if cached_record:
                 # Merge new data with cached record
                 cached_record.update(data)
                 self.cache_airtable_record(record_id, survey.airtable_table_id, cached_record)
+                logger.debug("Updated cache with new data")
             
             # Update Airtable
             table = self.airtable.table(AIRTABLE_BASE_ID, survey.airtable_table_id)
-            table.update(record_id, data)
-            
-            # Update cache with new data
-            if not cached_record:
-                self.cache_airtable_record(record_id, survey.airtable_table_id, data)
-            
-            return True
+            try:
+                table.update(record_id, data)
+                logger.info(f"Successfully updated Airtable record {record_id}")
+                
+                # Update cache with new data
+                if not cached_record:
+                    self.cache_airtable_record(record_id, survey.airtable_table_id, data)
+                
+                return True
+            except Exception as airtable_error:
+                logger.error(f"Failed to update Airtable: {str(airtable_error)}")
+                if hasattr(airtable_error, 'response'):
+                    logger.error(f"Airtable error response: {airtable_error.response.text if hasattr(airtable_error.response, 'text') else airtable_error.response}")
+                return False
+                
         except Exception as e:
-            logger.error(f"Error updating Airtable record: {e}")
+            logger.error(f"Error updating Airtable record: {str(e)}")
+            logger.error(f"Stack trace: {traceback.format_exc()}")
             return False
 
     async def schedule_next_question(self, chat_id: str, delay_seconds: int) -> None:
