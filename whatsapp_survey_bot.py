@@ -149,6 +149,19 @@ class WhatsAppSurveyBot:
         self.airtable_cache = {}
         self.airtable_cache_timeout = 300
         
+        # Initialize emoji and special characters mapping
+        self.emoji_mapping = {
+            "⚡": "",
+            "⏱️": "",
+            "⏰": "",
+            "✅": "",
+            "❌": "",
+            "💭": "",
+            "😊": "",
+            "🙈": "",
+            "–": "-"  # Replace special dash with regular dash
+        }
+        
         # Initialize Airtable client
         self.airtable = Api(AIRTABLE_API_KEY)
         logger.info("Initialized Airtable client")
@@ -544,6 +557,33 @@ class WhatsAppSurveyBot:
             logger.error(f"Error generating summary: {e}")
             return "לא הצלחנו ליצור סיכום כרגע."
 
+    def clean_text_for_airtable(self, text: str) -> str:
+        """Clean text by removing emojis and replacing special characters for Airtable compatibility"""
+        if not text:
+            return text
+            
+        # First replace known emojis and special characters
+        for char, replacement in self.emoji_mapping.items():
+            text = text.replace(char, replacement)
+            
+        # Then remove any remaining emojis using regex
+        # This pattern matches most emoji characters
+        emoji_pattern = re.compile("["
+            u"\U0001F600-\U0001F64F"  # emoticons
+            u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+            u"\U0001F680-\U0001F6FF"  # transport & map symbols
+            u"\U0001F1E0-\U0001F1FF"  # flags (iOS)
+            u"\U00002702-\U000027B0"
+            u"\U000024C2-\U0001F251"
+            "]+", flags=re.UNICODE)
+        
+        text = emoji_pattern.sub('', text)
+        
+        # Remove multiple spaces and trim
+        text = ' '.join(text.split())
+        
+        return text.strip()
+
     async def process_survey_answer(self, chat_id: str, answer: Dict[str, str]) -> None:
         try:
             logger.info(f"Processing survey answer for chat_id: {chat_id}")
@@ -567,10 +607,10 @@ class WhatsAppSurveyBot:
                 formatted_answer = answer["content"]
                 if current_question["type"] == "poll":
                     formatted_answer = answer["content"].split(", ")
-                    formatted_answer = [opt.split(' ')[0] for opt in formatted_answer]
-                    # Remove emojis and extra spaces for Airtable
-                    formatted_answer = [opt.split('⚡')[0].split('⏱️')[0].split('⏰')[0].strip() for opt in formatted_answer]
+                    formatted_answer = [self.clean_text_for_airtable(opt) for opt in formatted_answer]
                     formatted_answer = formatted_answer[0] if formatted_answer else ""
+                else:
+                    formatted_answer = self.clean_text_for_airtable(formatted_answer)
                 
                 state["answers"][question_id] = formatted_answer
                 logger.debug(f"Updated state answers: {json.dumps(state['answers'], ensure_ascii=False)}")
@@ -933,47 +973,70 @@ class WhatsAppSurveyBot:
 
     async def handle_text_message(self, chat_id: str, message: str, sender_name: str = "") -> None:
         """Handle incoming text messages"""
-        # Regular text message handling
-        message = message.strip()
-        
-        if chat_id not in self.survey_state:
-            # Check if this is a trigger for a new survey
-            survey = self.get_survey_by_trigger(message)
-            if survey:
-                # Create initial record and start survey
-                record_id = self.create_initial_record(chat_id, sender_name, survey)
-                if record_id:
-                    self.survey_state[chat_id] = {
-                        "current_question": 0,
-                        "answers": {},
-                        "record_id": record_id,
-                        "survey": survey,
-                        "last_activity": datetime.now()
-                    }
-                    # Send welcome message first
-                    await self.send_message_with_retry(chat_id, survey.messages["welcome"])
-                    await asyncio.sleep(1.5)  # Add a small delay between messages
-                    await self.send_next_question(chat_id)
-                else:
-                    await self.send_message_with_retry(
-                        chat_id, 
-                        "מצטערים, הייתה שגיאה בהתחלת השאלון. נא לנסות שוב."
-                    )
-        else:
-            state = self.survey_state[chat_id]
+        try:
+            # Regular text message handling
+            message = message.strip()
             
-            # Check if we're waiting for a meeting poll response
-            if state.get("waiting_for_meeting_response") and state.get("poll_options"):
-                if message in ["1", "2"]:
-                    selected_option = state["poll_options"][int(message) - 1]
-                    await self.handle_meeting_poll_response(chat_id, selected_option)
-                    return
-                else:
-                    await self.send_message_with_retry(chat_id, "אנא השב/י 1 או 2")
-                    return
+            # Check for survey exit command
+            if message.lower() == "הפסקת שאלון":
+                if chat_id in self.survey_state:
+                    state = self.survey_state[chat_id]
+                    survey = state["survey"]
+                    # Update Airtable record status to "בוטל"
+                    try:
+                        await self.update_airtable_record(
+                            state["record_id"],
+                            {"סטטוס": "בוטל"},
+                            survey
+                        )
+                    except Exception as e:
+                        logger.error(f"Error updating Airtable status on survey exit: {str(e)}")
+                    
+                    del self.survey_state[chat_id]
+                    await self.send_message_with_retry(chat_id, "השאלון הופסק. תודה על זמנך! 🙏")
+                return
             
-            # Regular survey answer handling
-            await self.process_survey_answer(chat_id, {"type": "text", "content": message})
+            if chat_id not in self.survey_state:
+                # Check if this is a trigger for a new survey
+                survey = self.get_survey_by_trigger(message)
+                if survey:
+                    # Create initial record and start survey
+                    record_id = self.create_initial_record(chat_id, sender_name, survey)
+                    if record_id:
+                        self.survey_state[chat_id] = {
+                            "current_question": 0,
+                            "answers": {},
+                            "record_id": record_id,
+                            "survey": survey,
+                            "last_activity": datetime.now()
+                        }
+                        # Send welcome message first
+                        await self.send_message_with_retry(chat_id, survey.messages["welcome"])
+                        await asyncio.sleep(1.5)  # Add a small delay between messages
+                        await self.send_next_question(chat_id)
+                    else:
+                        await self.send_message_with_retry(
+                            chat_id, 
+                            "מצטערים, הייתה שגיאה בהתחלת השאלון. נא לנסות שוב."
+                        )
+            else:
+                state = self.survey_state[chat_id]
+                
+                # Check if we're waiting for a meeting poll response
+                if state.get("waiting_for_meeting_response") and state.get("poll_options"):
+                    if message in ["1", "2"]:
+                        selected_option = state["poll_options"][int(message) - 1]
+                        await self.handle_meeting_poll_response(chat_id, selected_option)
+                        return
+                    else:
+                        await self.send_message_with_retry(chat_id, "אנא השב/י 1 או 2")
+                        return
+                
+                # Regular survey answer handling
+                await self.process_survey_answer(chat_id, {"type": "text", "content": message})
+        except Exception as e:
+            logger.error(f"Error handling text message: {str(e)}")
+            await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד ההודעה. נא לנסות שוב.")
 
     async def handle_poll_response(self, chat_id: str, poll_data: Dict) -> None:
         """Handle poll response"""
