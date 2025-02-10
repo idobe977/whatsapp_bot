@@ -11,14 +11,14 @@ from datetime import datetime, timedelta
 import traceback
 from mutagen.oggopus import OggOpus
 import tempfile
-from survey_definitions import SurveyDefinition
-from survey_loader import load_all_surveys
+from dataclasses import dataclass
 import threading
 import asyncio
 from fastapi import FastAPI
 import aiohttp
 import re
 import time
+import glob
 
 # Configure logging with more detailed format
 logging.basicConfig(
@@ -68,19 +68,75 @@ logger.info("Configured Gemini API")
 AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
 
-# Load all surveys from JSON files
-AVAILABLE_SURVEYS = load_all_surveys()
-logger.info(f"Loaded {len(AVAILABLE_SURVEYS)} surveys from JSON files")
+@dataclass
+class SurveyDefinition:
+    name: str
+    trigger_phrases: List[str]
+    airtable_table_id: str
+    questions: List[Dict]
+    airtable_base_id: str = None
+    messages: Dict = None
+    ai_prompts: Dict = None
 
-# Load survey table IDs
-SURVEY_TABLE_IDS = {
-    "business_survey": os.getenv("AIRTABLE_BUSINESS_SURVEY_TABLE_ID"),
-    "research_survey": os.getenv("AIRTABLE_RESEARCH_SURVEY_TABLE_ID"),
-    "satisfaction_survey": os.getenv("AIRTABLE_SATISFACTION_SURVEY_TABLE_ID")
-}
+    def __post_init__(self):
+        self.airtable_base_id = self.airtable_base_id or os.getenv("AIRTABLE_BASE_ID")
+        self.messages = self.messages or {
+            "welcome": "ברוכים הבאים לשאלון!",
+            "completion": {
+                "text": "תודה רבה על מילוי השאלון!",
+                "should_generate_summary": True
+            },
+            "timeout": "השאלון בוטל עקב חוסר פעילות. אנא התחל מחדש.",
+            "error": "מצטערים, הייתה שגיאה בעיבוד התשובה. נא לנסות שוב."
+        }
+        self.ai_prompts = self.ai_prompts or {
+            "reflections": {
+                "empathetic": {
+                    "name": "תגובה אמפתית",
+                    "prompt": "צור תגובה אמפתית וחמה"
+                },
+                "professional": {
+                    "name": "תגובה מקצועית",
+                    "prompt": "צור תגובה מקצועית ותכליתית"
+                }
+            },
+            "summary": {
+                "prompt": "צור סיכום מקיף של כל התשובות בשאלון",
+                "max_length": 500,
+                "include_recommendations": True
+            }
+        }
 
-logger.info(f"Configured Airtable with base ID: {AIRTABLE_BASE_ID}")
-logger.info(f"Loaded survey table IDs: {list(SURVEY_TABLE_IDS.keys())}")
+def load_surveys_from_json() -> List[SurveyDefinition]:
+    """Load all survey definitions from JSON files in the surveys directory"""
+    surveys = []
+    surveys_dir = 'surveys'
+    
+    if not os.path.exists(surveys_dir):
+        os.makedirs(surveys_dir)
+        logger.info(f"Created surveys directory: {surveys_dir}")
+        return []
+
+    for file_path in glob.glob(os.path.join(surveys_dir, '*.json')):
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                
+            survey = SurveyDefinition(
+                name=data['name'],
+                trigger_phrases=data['trigger_phrases'],
+                airtable_table_id=data['airtable']['table_id'],
+                airtable_base_id=data['airtable'].get('base_id'),
+                questions=data['questions'],
+                messages=data['messages'],
+                ai_prompts=data['ai_prompts']
+            )
+            surveys.append(survey)
+            logger.info(f"Successfully loaded survey: {survey.name} from {file_path}")
+        except Exception as e:
+            logger.error(f"Error loading survey from {file_path}: {str(e)}")
+            
+    return surveys
 
 class WhatsAppSurveyBot:
     def __init__(self):
@@ -102,7 +158,7 @@ class WhatsAppSurveyBot:
         
         # Load surveys dynamically
         self.survey_table_ids = {}
-        for survey in AVAILABLE_SURVEYS:
+        for survey in load_surveys_from_json():
             self._validate_survey_definition(survey)
             self.survey_table_ids[survey.name] = survey.airtable_table_id
             logger.info(f"Loaded survey: {survey.name} with table ID: {survey.airtable_table_id}")
@@ -201,7 +257,7 @@ class WhatsAppSurveyBot:
     def get_survey_by_trigger(self, message: str) -> Optional[SurveyDefinition]:
         """Find the appropriate survey based on trigger phrase"""
         message = message.lower()
-        for survey in AVAILABLE_SURVEYS:
+        for survey in load_surveys_from_json():
             if any(trigger.lower() in message for trigger in survey.trigger_phrases):
                 return survey
         return None
@@ -403,7 +459,11 @@ class WhatsAppSurveyBot:
             
             # Get reflection prompt from survey configuration
             reflection_type = reflection_config["type"]
-            reflection_prompt = survey.ai_prompts["reflections"].get(reflection_type, {}).get("prompt")
+            if reflection_type not in survey.ai_prompts["reflections"]:
+                logger.error(f"Invalid reflection type: {reflection_type}")
+                return None
+                
+            reflection_prompt = survey.ai_prompts["reflections"][reflection_type].get("prompt")
             if not reflection_prompt:
                 logger.error(f"No prompt found for reflection type: {reflection_type}")
                 return None
@@ -450,10 +510,18 @@ class WhatsAppSurveyBot:
                 return "לא נמצאו תשובות לסיכום."
                 
             summary_config = survey.ai_prompts.get("summary", {})
+            if not summary_config:
+                logger.error("No summary configuration found in survey")
+                return "לא הצלחנו ליצור סיכום כרגע."
+                
             summary_prompt = summary_config.get("prompt")
             if not summary_prompt:
                 logger.error("No summary prompt found in survey configuration")
                 return "לא הצלחנו ליצור סיכום כרגע."
+
+            # Add recommendations flag to prompt if configured
+            if summary_config.get("include_recommendations", False):
+                summary_prompt += "\nאנא כלול גם המלצות מעשיות לשיפור."
 
             prompt = f"""
             {summary_prompt}
@@ -600,7 +668,7 @@ class WhatsAppSurveyBot:
 
             # Send completion message
             await self.send_message_with_retry(chat_id, completion_config.get("text", "תודה על מילוי השאלון!"))
-
+                
         except Exception as e:
             logger.error(f"Error in finish_survey: {str(e)}")
             logger.error(f"Stack trace: {traceback.format_exc()}")
@@ -801,6 +869,9 @@ class WhatsAppSurveyBot:
                         "survey": survey,
                         "last_activity": datetime.now()
                     }
+                    # Send welcome message first
+                    await self.send_message_with_retry(chat_id, survey.messages["welcome"])
+                    await asyncio.sleep(1.5)  # Add a small delay between messages
                     await self.send_next_question(chat_id)
                 else:
                     await self.send_message_with_retry(
