@@ -1,5 +1,5 @@
 {
-  "name": "שאלון מחקר",
+  "name": "שאלון אפיון",
   "trigger_phrases": [
     "שאלון אפיון",
     "אשמח להתחיל את שאלון האפיון 😊",
@@ -10,8 +10,8 @@
     "שאלון אפיון עסקי"
 ],
   "airtable": {
-    "table_id": "appjvjnGLFopOf75b",
-    "base_id": "tbloFfjqiznQ13LHs"
+    "table_id": "tbloFfjqiznQ13LHs",
+    "base_id": "appjvjnGLFopOf75b"
   },
   "messages": {
     "welcome": "*ברוכים הבאים לשאלון האפיון שלנו!* 🤝\n\nיחד נגלה את הדרך הנכונה להצמיח את העסק שלך 🚀",
