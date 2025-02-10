@@ -1197,6 +1197,8 @@ class WhatsAppSurveyBot:
             # First check if user is in an active survey
             if chat_id in self.survey_state:
                 state = self.survey_state[chat_id]
+                logger.info(f"Found active survey state for {chat_id}")
+                logger.debug(f"Current survey state: {json.dumps(state, ensure_ascii=False)}")
                 
                 # Check for stop survey command
                 if message.lower() in ["הפסקת שאלון", "עצור שאלון", "ביטול שאלון", "stop"]:
@@ -1220,10 +1222,14 @@ class WhatsAppSurveyBot:
                     )
                     return
 
-                # Process as survey answer
-                logger.info(f"Processing survey answer for chat_id: {chat_id}")
-                await self.process_survey_answer(chat_id, {"type": "text", "content": message})
-                return
+                # Process as survey answer if we have valid survey state
+                if "survey" in state and "current_question" in state:
+                    logger.info(f"Processing survey answer for chat_id: {chat_id}, question index: {state['current_question']}")
+                    await self.process_survey_answer(chat_id, {"type": "text", "content": message})
+                    return
+                else:
+                    logger.error(f"Invalid survey state for {chat_id}: {state}")
+                    del self.survey_state[chat_id]
 
             # Then check if we're in the middle of scheduling a meeting
             if chat_id in self.meeting_state:
@@ -1243,28 +1249,30 @@ class WhatsAppSurveyBot:
                 await self.handle_meeting_request(chat_id)
                 return
 
-            # Finally check if this is a trigger for a new survey
-            new_survey = self.get_survey_by_trigger(message)
-            if new_survey:
-                logger.info(f"Found new survey trigger: {new_survey.name}")
-                record_id = self.create_initial_record(chat_id, sender_name, new_survey)
-                if record_id:
-                    self.survey_state[chat_id] = {
-                        "current_question": 0,
-                        "answers": {},
-                        "record_id": record_id,
-                        "survey": new_survey,
-                        "last_activity": datetime.now()
-                    }
-                    await self.send_message_with_retry(chat_id, new_survey.messages["welcome"])
-                    await asyncio.sleep(1.5)
-                    await self.send_next_question(chat_id)
-                else:
-                    await self.send_message_with_retry(
-                        chat_id, 
-                        "מצטערים, הייתה שגיאה בהתחלת השאלון. נא לנסות שוב."
-                    )
-                return
+            # Only check for new survey trigger if not in any active state
+            if chat_id not in self.survey_state and chat_id not in self.meeting_state:
+                logger.info("Checking for new survey trigger")
+                new_survey = self.get_survey_by_trigger(message)
+                if new_survey:
+                    logger.info(f"Found new survey trigger: {new_survey.name}")
+                    record_id = self.create_initial_record(chat_id, sender_name, new_survey)
+                    if record_id:
+                        self.survey_state[chat_id] = {
+                            "current_question": 0,
+                            "answers": {},
+                            "record_id": record_id,
+                            "survey": new_survey,
+                            "last_activity": datetime.now()
+                        }
+                        await self.send_message_with_retry(chat_id, new_survey.messages["welcome"])
+                        await asyncio.sleep(1.5)
+                        await self.send_next_question(chat_id)
+                    else:
+                        await self.send_message_with_retry(
+                            chat_id, 
+                            "מצטערים, הייתה שגיאה בהתחלת השאלון. נא לנסות שוב."
+                        )
+                    return
 
         except Exception as e:
             logger.error(f"Error handling text message: {str(e)}")
