@@ -172,12 +172,18 @@ class WhatsAppSurveyBot:
         # Initialize aiohttp session for reuse
         self.session = None
         
-        # Load surveys dynamically
-        self.survey_table_ids = {}
-        for survey in load_surveys_from_json():
-            self._validate_survey_definition(survey)
-            self.survey_table_ids[survey.name] = survey.airtable_table_id
-            logger.info(f"Loaded survey: {survey.name} with table ID: {survey.airtable_table_id}")
+        # Load surveys once during initialization
+        try:
+            self.surveys = load_surveys_from_json()
+            self.survey_table_ids = {}
+            for survey in self.surveys:
+                self._validate_survey_definition(survey)
+                self.survey_table_ids[survey.name] = survey.airtable_table_id
+                logger.info(f"Loaded survey: {survey.name} with table ID: {survey.airtable_table_id}")
+        except Exception as e:
+            logger.error(f"Error loading surveys: {str(e)}")
+            self.surveys = []
+            self.survey_table_ids = {}
 
         self.calendar_manager = CalendarManager()
         self.meeting_state = {}
@@ -276,7 +282,7 @@ class WhatsAppSurveyBot:
     def get_survey_by_trigger(self, message: str) -> Optional[SurveyDefinition]:
         """Find the appropriate survey based on trigger phrase"""
         message = message.lower()
-        for survey in load_surveys_from_json():
+        for survey in self.surveys:  # Use the stored surveys instead of loading again
             if any(trigger.lower() in message for trigger in survey.trigger_phrases):
                 return survey
         return None
@@ -577,14 +583,13 @@ class WhatsAppSurveyBot:
         return text.strip()
 
     async def process_survey_answer(self, chat_id: str, answer: Dict[str, str]) -> None:
+        """Process a survey answer"""
         try:
-            logger.info(f"Processing survey answer for chat_id: {chat_id}")
-            
-            state = self.survey_state.get(chat_id)
-            if not state or "record_id" not in state:
-                logger.error(f"No valid state found for chat_id: {chat_id}")
+            if chat_id not in self.survey_state:
+                logger.warning(f"No active survey found for chat_id: {chat_id}")
                 return
 
+            state = self.survey_state[chat_id]
             state['last_activity'] = datetime.now()
             survey = state["survey"]
             current_question = survey.questions[state["current_question"]]
