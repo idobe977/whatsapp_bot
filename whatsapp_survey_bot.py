@@ -568,6 +568,9 @@ class WhatsAppSurveyBot:
                 if current_question["type"] == "poll":
                     formatted_answer = answer["content"].split(", ")
                     formatted_answer = [opt.split(' ')[0] for opt in formatted_answer]
+                    # Remove emojis and extra spaces for Airtable
+                    formatted_answer = [opt.split('⚡')[0].split('⏱️')[0].split('⏰')[0].strip() for opt in formatted_answer]
+                    formatted_answer = formatted_answer[0] if formatted_answer else ""
                 
                 state["answers"][question_id] = formatted_answer
                 logger.debug(f"Updated state answers: {json.dumps(state['answers'], ensure_ascii=False)}")
