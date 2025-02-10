@@ -649,13 +649,20 @@ class WhatsAppSurveyBot:
                         if user_answer == if_condition["answer"]:
                             next_question_id = if_condition["then"].get("goto")
                             custom_message = if_condition["then"].get("say")
-                        else:
-                            # Check else_if conditions
-                            for else_if in flow.get("else_if", []):
-                                if user_answer == else_if["answer"]:
-                                    next_question_id = else_if["then"].get("goto")
-                                    custom_message = else_if["then"].get("say")
-                                    break
+                        elif "else_if" in flow:
+                            # Handle else_if as a list of conditions
+                            if isinstance(flow["else_if"], list):
+                                for else_if_condition in flow["else_if"]:
+                                    if user_answer == else_if_condition["answer"]:
+                                        next_question_id = else_if_condition["then"].get("goto")
+                                        custom_message = else_if_condition["then"].get("say")
+                                        break
+                            # Handle else_if as a single condition
+                            elif isinstance(flow["else_if"], dict):
+                                else_if_condition = flow["else_if"]
+                                if user_answer == else_if_condition["answer"]:
+                                    next_question_id = else_if_condition["then"].get("goto")
+                                    custom_message = else_if_condition["then"].get("say")
                     # Check for simple then flow
                     elif "then" in flow:
                         next_question_id = flow["then"].get("goto")
