@@ -782,6 +782,129 @@ class WhatsAppSurveyBot:
             state.pop("last_poll_response", None)
             await self.send_next_question(chat_id)
 
+    async def handle_text_message(self, chat_id: str, message: str, sender_name: str = "") -> None:
+        """Handle incoming text messages"""
+        # Regular text message handling
+        message = message.strip()
+        
+        if chat_id not in self.survey_state:
+            # Check if this is a trigger for a new survey
+            survey = self.get_survey_by_trigger(message)
+            if survey:
+                # Create initial record and start survey
+                record_id = self.create_initial_record(chat_id, sender_name, survey)
+                if record_id:
+                    self.survey_state[chat_id] = {
+                        "current_question": 0,
+                        "answers": {},
+                        "record_id": record_id,
+                        "survey": survey,
+                        "last_activity": datetime.now()
+                    }
+                    await self.send_next_question(chat_id)
+                else:
+                    await self.send_message_with_retry(
+                        chat_id, 
+                        "מצטערים, הייתה שגיאה בהתחלת השאלון. נא לנסות שוב."
+                    )
+        else:
+            state = self.survey_state[chat_id]
+            
+            # Check if we're waiting for a meeting poll response
+            if state.get("waiting_for_meeting_response") and state.get("poll_options"):
+                if message in ["1", "2"]:
+                    selected_option = state["poll_options"][int(message) - 1]
+                    await self.handle_meeting_poll_response(chat_id, selected_option)
+                    return
+                else:
+                    await self.send_message_with_retry(chat_id, "אנא השב/י 1 או 2")
+                    return
+            
+            # Regular survey answer handling
+            await self.process_survey_answer(chat_id, {"type": "text", "content": message})
+
+    async def handle_poll_response(self, chat_id: str, poll_data: Dict) -> None:
+        """Handle poll response"""
+        if chat_id not in self.survey_state:
+            logger.warning(f"Received poll response for unknown chat_id: {chat_id}")
+            return
+
+        state = self.survey_state[chat_id]
+        state['last_activity'] = datetime.now()
+
+        # Check if this is a meeting scheduling poll response
+        if state.get("waiting_for_meeting_response"):
+            selected_options = []
+            if "votes" in poll_data:
+                for vote in poll_data["votes"]:
+                    if "optionVoters" in vote and chat_id in vote.get("optionVoters", []):
+                        selected_options.append(vote["optionName"])
+            
+            if selected_options:
+                await self.handle_meeting_poll_response(chat_id, selected_options[0])
+            return
+
+        # Regular poll handling continues...
+        current_question = state["survey"].questions[state["current_question"]]
+        question_id = current_question["id"]
+        
+        # Check if current question is a poll question
+        if current_question["type"] != "poll":
+            logger.warning(f"Ignoring poll response as current question {question_id} is not a poll question")
+            return
+            
+        # Check if this poll response matches the current question's name
+        if poll_data.get("name") != current_question["text"]:
+            logger.warning(f"Ignoring poll response as it doesn't match current question. Expected: {current_question['text']}, Got: {poll_data.get('name')}")
+            return
+        
+        logger.info(f"Processing poll response for question: {question_id}")
+        logger.debug(f"Poll data: {json.dumps(poll_data, ensure_ascii=False)}")
+        
+        # Store the last poll response time for multiple choice questions
+        if current_question.get("multipleAnswers", False):
+            current_time = datetime.now()
+            state["last_poll_response"] = current_time
+            state.setdefault("selected_options", set())
+        
+        selected_options = []
+        if "votes" in poll_data:
+            for vote in poll_data["votes"]:
+                if "optionVoters" in vote and chat_id in vote.get("optionVoters", []):
+                    selected_options.append(vote["optionName"])
+        
+        if selected_options:
+            if current_question.get("multipleAnswers", False):
+                # For multiple choice questions, update the set of selected options
+                state["selected_options"].update(selected_options)
+                answer_content = ", ".join(state["selected_options"])
+                logger.info(f"Updated multiple choice selections: {answer_content}")
+                
+                # Save the current selections but don't move to next question yet
+                await self.process_survey_answer(chat_id, {
+                    "type": "poll",
+                    "content": answer_content,
+                    "is_final": False
+                })
+                
+                # Send a message to inform the user they can select more options
+                await self.send_message_with_retry(chat_id, "ניתן לבחור אפשרויות נוספות. כשסיימת, המתן 3 שניות והשאלון ימשיך אוטומטית.")
+                
+                # Schedule a check to move to the next question after 3 seconds
+                asyncio.create_task(self.schedule_next_question(chat_id, 3))
+            else:
+                # For single choice questions, proceed as normal
+                answer_content = ", ".join(selected_options)
+                logger.info(f"Poll response processed - Question: {question_id}, Selected options: {answer_content}")
+                
+                await self.process_survey_answer(chat_id, {
+                    "type": "poll",
+                    "content": answer_content,
+                    "is_final": True
+                })
+        else:
+            logger.warning(f"No valid options selected for chat_id: {chat_id}")
+
 # Initialize the bot
 logger.info("Initializing WhatsApp Survey Bot...")
 bot = WhatsAppSurveyBot()
