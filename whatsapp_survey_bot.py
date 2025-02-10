@@ -19,6 +19,7 @@ import aiohttp
 import re
 import time
 import glob
+from calendar_manager import CalendarManager
 
 # Configure logging with more detailed format
 logging.basicConfig(
@@ -44,7 +45,10 @@ required_env_vars = [
     "AIRTABLE_BASE_ID",
     "AIRTABLE_BUSINESS_SURVEY_TABLE_ID",
     "AIRTABLE_RESEARCH_SURVEY_TABLE_ID",
-    "AIRTABLE_SATISFACTION_SURVEY_TABLE_ID"
+    "AIRTABLE_SATISFACTION_SURVEY_TABLE_ID",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "GOOGLE_PROJECT_ID"
 ]
 
 missing_vars = [var for var in required_env_vars if not os.getenv(var)]
@@ -175,6 +179,9 @@ class WhatsAppSurveyBot:
             self._validate_survey_definition(survey)
             self.survey_table_ids[survey.name] = survey.airtable_table_id
             logger.info(f"Loaded survey: {survey.name} with table ID: {survey.airtable_table_id}")
+
+        self.calendar_manager = CalendarManager()
+        self.meeting_state = {}
 
     def _validate_survey_definition(self, survey: SurveyDefinition) -> None:
         """Validate survey definition has all required fields"""
@@ -1125,6 +1132,159 @@ class WhatsAppSurveyBot:
                 })
         else:
             logger.warning(f"No valid options selected for chat_id: {chat_id}")
+
+    async def handle_meeting_request(self, chat_id: str) -> None:
+        """טיפול בבקשה לקביעת פגישה"""
+        available_days = self.calendar_manager.get_available_days(datetime.now())
+        
+        # יצירת לוח שנה ויזואלי
+        calendar_view = self._create_calendar_view(available_days)
+        await self.send_message_with_retry(chat_id, 
+            "בחר את היום המועדף לפגישה מהימים הפנויים (מסומנים בכחול):\n\n" + calendar_view)
+        
+        # שמירת מצב הפגישה
+        self.meeting_state[chat_id] = {
+            'state': 'waiting_for_day',
+            'available_days': available_days
+        }
+
+    def _create_calendar_view(self, available_days: List[datetime]) -> str:
+        """יצירת תצוגת לוח שנה ויזואלית"""
+        today = datetime.now()
+        month_start = today.replace(day=1)
+        
+        # כותרת החודש
+        calendar_str = f"{month_start.strftime('%B %Y')}\n"
+        calendar_str += "א  ב  ג  ד  ה  ו  ש\n"
+        
+        # מילוי ימי החודש
+        week = []
+        first_day = month_start.weekday()
+        
+        # רווחים לתחילת החודש
+        for _ in range(first_day):
+            week.append("  ")
+            
+        for day in range(1, 32):
+            try:
+                current = month_start.replace(day=day)
+                if current in available_days:
+                    week.append(f"{day:02d}")
+                else:
+                    week.append("--")
+                    
+                if len(week) == 7:
+                    calendar_str += "  ".join(week) + "\n"
+                    week = []
+            except ValueError:  # חודש נגמר
+                break
+                
+        if week:
+            calendar_str += "  ".join(week)
+            
+        return f"```\n{calendar_str}\n```"
+
+    async def handle_day_selection(self, chat_id: str, message: str) -> None:
+        """טיפול בבחירת יום"""
+        try:
+            selected_day = int(message)
+            state = self.meeting_state.get(chat_id)
+            
+            if not state or state['state'] != 'waiting_for_day':
+                return
+                
+            # מציאת היום הנבחר
+            selected_date = None
+            for day in state['available_days']:
+                if day.day == selected_day:
+                    selected_date = day
+                    break
+                    
+            if not selected_date:
+                await self.send_message_with_retry(chat_id, "נא לבחור יום פנוי מהלוח המוצג")
+                return
+                
+            # קבלת חלונות זמן פנויים
+            slots = self.calendar_manager.get_available_slots(selected_date)
+            slots_message = "בחר שעה מהשעות הפנויות:\n\n"
+            
+            for i, slot in enumerate(slots, 1):
+                slots_message += f"{i}. {slot['start']}-{slot['end']}\n"
+                
+            await self.send_message_with_retry(chat_id, slots_message)
+            
+            # עדכון מצב
+            self.meeting_state[chat_id].update({
+                'state': 'waiting_for_time',
+                'selected_date': selected_date,
+                'available_slots': slots
+            })
+            
+        except ValueError:
+            await self.send_message_with_retry(chat_id, "נא להזין מספר יום תקין")
+
+    async def handle_time_selection(self, chat_id: str, message: str) -> None:
+        """טיפול בבחירת שעה"""
+        try:
+            slot_index = int(message) - 1
+            state = self.meeting_state.get(chat_id)
+            
+            if not state or state['state'] != 'waiting_for_time':
+                return
+                
+            slots = state['available_slots']
+            if slot_index < 0 or slot_index >= len(slots):
+                await self.send_message_with_retry(chat_id, "נא לבחור מספר חלון זמן תקין")
+                return
+                
+            selected_slot = slots[slot_index]
+            selected_date = state['selected_date']
+            
+            # יצירת אובייקט datetime לזמן הנבחר
+            hour, minute = map(int, selected_slot['start'].split(':'))
+            meeting_time = selected_date.replace(hour=hour, minute=minute)
+            
+            # קביעת הפגישה
+            if self.calendar_manager.schedule_meeting(meeting_time):
+                confirmation = (
+                    f"*הפגישה נקבעה בהצלחה!*\n\n"
+                    f"📅 תאריך: {meeting_time.strftime('%d/%m/%Y')}\n"
+                    f"🕒 שעה: {selected_slot['start']}\n"
+                    f"⏱️ משך: 30 דקות\n\n"
+                    f"הפגישה נוספה ליומן שלך ותקבל תזכורת לפני הפגישה."
+                )
+                await self.send_message_with_retry(chat_id, confirmation)
+            else:
+                await self.send_message_with_retry(chat_id, "מצטערים, הייתה בעיה בקביעת הפגישה. נא לנסות שוב.")
+                
+            # ניקוי מצב
+            del self.meeting_state[chat_id]
+            
+        except ValueError:
+            await self.send_message_with_retry(chat_id, "נא להזין מספר חלון זמן תקין")
+
+    async def process_message(self, message_data: Dict) -> None:
+        """עדכון הפונקציה הקיימת לטיפול בהודעות"""
+        chat_id = message_data.get('chatId')
+        message_text = message_data.get('messageText', '').strip()
+        
+        # טיפול בבקשות פגישה
+        if message_text.lower() in ["פגישה", "קביעת פגישה", "תיאום פגישה"]:
+            await self.handle_meeting_request(chat_id)
+            return
+            
+        # טיפול בבחירת יום
+        if chat_id in self.meeting_state and self.meeting_state[chat_id]['state'] == 'waiting_for_day':
+            await self.handle_day_selection(chat_id, message_text)
+            return
+            
+        # טיפול בבחירת שעה
+        if chat_id in self.meeting_state and self.meeting_state[chat_id]['state'] == 'waiting_for_time':
+            await self.handle_time_selection(chat_id, message_text)
+            return
+        
+        # המשך הטיפול הרגיל בהודעות
+        # Process the rest of the message handling logic
 
 # Initialize the bot
 logger.info("Initializing WhatsApp Survey Bot...")
