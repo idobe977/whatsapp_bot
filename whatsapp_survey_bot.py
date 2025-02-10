@@ -1194,6 +1194,30 @@ class WhatsAppSurveyBot:
             logger.info(f"Starting handle_text_message for chat_id: {chat_id}, message: {message}")
             message = message.strip()
 
+            # Check for stop survey command first
+            if message.lower() in ["הפסקת שאלון", "עצור שאלון", "ביטול שאלון", "stop"]:
+                logger.info(f"Received stop survey command from {chat_id}")
+                if chat_id in self.survey_state:
+                    state = self.survey_state[chat_id]
+                    survey = state.get("survey")
+                    record_id = state.get("record_id")
+                    
+                    if survey and record_id:
+                        # Update Airtable record status
+                        await self.update_airtable_record(
+                            record_id,
+                            {"סטטוס": "בוטל"},
+                            survey
+                        )
+                    
+                    # Clean up state
+                    del self.survey_state[chat_id]
+                    await self.send_message_with_retry(
+                        chat_id,
+                        "השאלון הופסק. אתה מוזמן להתחיל מחדש בכל זמן שתרצה 😊"
+                    )
+                return
+
             # First check if this is a survey response
             if await self.handle_survey_response(chat_id, message):
                 logger.info("Message handled as survey response")
