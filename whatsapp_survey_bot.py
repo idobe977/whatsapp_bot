@@ -1174,19 +1174,7 @@ class WhatsAppSurveyBot:
             logger.info(f"Starting handle_text_message for chat_id: {chat_id}, message: {message}")
             message = message.strip()
             
-            # First check if we're in the middle of scheduling a meeting
-            if chat_id in self.meeting_state:
-                meeting_state = self.meeting_state[chat_id]
-                if meeting_state['state'] == 'waiting_for_day':
-                    logger.info(f"Handling day selection for meeting: {message}")
-                    await self.handle_day_selection(chat_id, message)
-                    return
-                elif meeting_state['state'] == 'waiting_for_time':
-                    logger.info(f"Handling time selection for meeting: {message}")
-                    await self.handle_time_selection(chat_id, message)
-                    return
-            
-            # Then check if user is in an active survey
+            # First check if user is in an active survey
             if chat_id in self.survey_state:
                 state = self.survey_state[chat_id]
                 logger.info(f"User in active survey state, current question: {state.get('current_question')}")
@@ -1208,19 +1196,22 @@ class WhatsAppSurveyBot:
                     await self.send_message_with_retry(chat_id, "השאלון הופסק. תודה על זמנך! 🙏")
                     return
                 
-                # Check if we're waiting for a meeting poll response
-                if state.get("waiting_for_meeting_response") and state.get("poll_options"):
-                    if message in ["1", "2"]:
-                        selected_option = state["poll_options"][int(message) - 1]
-                        await self.handle_meeting_poll_response(chat_id, selected_option)
-                    else:
-                        await self.send_message_with_retry(chat_id, "אנא השב/י 1 או 2")
-                    return
-                
                 # Process regular survey answer
                 logger.info(f"Processing regular survey answer for question {state['current_question']}")
                 await self.process_survey_answer(chat_id, {"type": "text", "content": message})
                 return
+            
+            # Then check if we're in the middle of scheduling a meeting
+            if chat_id in self.meeting_state:
+                meeting_state = self.meeting_state[chat_id]
+                if meeting_state['state'] == 'waiting_for_day':
+                    logger.info(f"Handling day selection for meeting: {message}")
+                    await self.handle_day_selection(chat_id, message)
+                    return
+                elif meeting_state['state'] == 'waiting_for_time':
+                    logger.info(f"Handling time selection for meeting: {message}")
+                    await self.handle_time_selection(chat_id, message)
+                    return
             
             # Check for meeting request keywords
             if message.lower() in ["פגישה", "קביעת פגישה", "תיאום פגישה"]:
@@ -1228,7 +1219,7 @@ class WhatsAppSurveyBot:
                 await self.handle_meeting_request(chat_id)
                 return
             
-            # Check if this is a trigger for a new survey
+            # Finally check if this is a trigger for a new survey
             new_survey = self.get_survey_by_trigger(message)
             if new_survey:
                 logger.info(f"Found new survey trigger: {new_survey.name}")
