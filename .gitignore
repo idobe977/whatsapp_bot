@@ -38,4 +38,12 @@ whatsapp_bot.log
 
 # OS
 .DS_Store
-Thumbs.db 
+Thumbs.db
+
+# Google Calendar credentials
+credentials.json
+token.pickle
+*.pickle
+
+# Local development files
+local_settings.py 
