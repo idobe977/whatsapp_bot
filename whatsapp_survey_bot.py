@@ -1098,20 +1098,29 @@ class WhatsAppSurveyBot:
             del self.airtable_cache[k]
 
     async def update_airtable_record(self, record_id: str, data: Dict, survey: SurveyDefinition) -> bool:
-        """Update Airtable record with retries"""
+        """Update Airtable record with retries and proper datetime handling"""
         try:
             logger.info(f"Starting Airtable update for record {record_id}")
-            logger.debug(f"Update data: {json.dumps(data, ensure_ascii=False)}")
             
             if not record_id or not data or not survey:
                 logger.error("Missing required parameters for Airtable update")
                 return False
             
+            # Convert datetime objects to strings in the data
+            formatted_data = {}
+            for key, value in data.items():
+                if isinstance(value, datetime):
+                    formatted_data[key] = value.strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    formatted_data[key] = value
+            
+            logger.debug(f"Formatted update data: {json.dumps(formatted_data, ensure_ascii=False)}")
+            
             # Get cached record if available
             cached_record = self.get_cached_airtable_record(record_id, survey.airtable_table_id)
             if cached_record:
                 # Merge new data with cached record
-                cached_record.update(data)
+                cached_record.update(formatted_data)
                 self.cache_airtable_record(record_id, survey.airtable_table_id, cached_record)
                 logger.debug("Updated cache with new data")
             
@@ -1119,21 +1128,23 @@ class WhatsAppSurveyBot:
             retries = 0
             max_retries = 3
             retry_delay = 2  # seconds
+            last_error = None
             
             while retries < max_retries:
                 try:
                     table = self.airtable.table(AIRTABLE_BASE_ID, survey.airtable_table_id)
-                    table.update(record_id, data)
+                    table.update(record_id, formatted_data)
                     logger.info(f"Successfully updated Airtable record {record_id}")
                     
                     # Update cache with new data
                     if not cached_record:
-                        self.cache_airtable_record(record_id, survey.airtable_table_id, data)
+                        self.cache_airtable_record(record_id, survey.airtable_table_id, formatted_data)
                     
                     return True
                     
                 except Exception as e:
                     retries += 1
+                    last_error = str(e)
                     logger.warning(f"Airtable update attempt {retries} failed: {str(e)}")
                     
                     if hasattr(e, 'response'):
@@ -1144,7 +1155,7 @@ class WhatsAppSurveyBot:
                         await asyncio.sleep(retry_delay)
                         retry_delay *= 2  # Exponential backoff
                     else:
-                        logger.error(f"Failed to update Airtable after {max_retries} attempts")
+                        logger.error(f"Failed to update Airtable after {max_retries} attempts. Last error: {last_error}")
                         return False
                 
         except Exception as e:
@@ -1198,9 +1209,28 @@ class WhatsAppSurveyBot:
             if chat_id in self.survey_state:
                 state = self.survey_state[chat_id]
                 logger.info(f"Found active survey state for {chat_id}")
-                # Create a copy of state without the survey object for logging
-                log_state = {k: v for k, v in state.items() if k != 'survey'}
+                
+                # Create a copy of state for logging, properly handling datetime objects
+                log_state = {}
+                for k, v in state.items():
+                    if k != 'survey':
+                        if isinstance(v, datetime):
+                            log_state[k] = v.isoformat()
+                        elif isinstance(v, dict):
+                            # Handle nested dictionaries
+                            log_state[k] = {}
+                            for sub_k, sub_v in v.items():
+                                if isinstance(sub_v, datetime):
+                                    log_state[k][sub_k] = sub_v.isoformat()
+                                else:
+                                    log_state[k][sub_k] = sub_v
+                        else:
+                            log_state[k] = v
+                            
                 logger.debug(f"Current survey state: {json.dumps(log_state, ensure_ascii=False)}")
+                
+                # Update last_activity as string
+                state['last_activity'] = datetime.now()
                 
                 # Check for stop survey command
                 if message.lower() in ["הפסקת שאלון", "עצור שאלון", "ביטול שאלון", "stop"]:
