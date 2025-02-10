@@ -873,12 +873,34 @@ class WhatsAppSurveyBot:
             state = self.survey_state[chat_id]
             survey = state["survey"]
             
-            # Update Airtable with the full answer
+            # Clean the answer by removing emojis and special characters
+            cleaned_answer = answer_content
+            for emoji in ["⚡", "⏱️", "⏰", "😊", "🙈", "🎁", "🎉"]:
+                cleaned_answer = cleaned_answer.replace(emoji, "")
+            cleaned_answer = cleaned_answer.strip()
+            
+            # Update Airtable with the cleaned answer
             await self.update_airtable_record(
                 state["record_id"],
-                {question_id: answer_content},  # Use the full answer without processing
+                {question_id: cleaned_answer},
                 survey
             )
+            
+            # Process flow logic if this is the last question
+            current_question = survey.questions[state["current_question"]]
+            if "flow" in current_question:
+                flow = current_question["flow"]
+                if "if" in flow and flow["if"]["answer"] == answer_content:
+                    if "say" in flow["if"]["then"]:
+                        await self.send_message_with_retry(chat_id, flow["if"]["then"]["say"])
+                        await asyncio.sleep(1.5)
+                elif "else_if" in flow:
+                    for else_if in flow["else_if"]:
+                        if else_if["answer"] == answer_content:
+                            if "say" in else_if["then"]:
+                                await self.send_message_with_retry(chat_id, else_if["then"]["say"])
+                                await asyncio.sleep(1.5)
+                            break
             
             # Move to next question
             state["current_question"] += 1
