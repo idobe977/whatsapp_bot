@@ -1168,39 +1168,37 @@ class WhatsAppSurveyBot:
             state.pop("last_poll_response", None)
             await self.send_next_question(chat_id)
 
+    async def handle_survey_response(self, chat_id: str, message: str) -> bool:
+        """Handle a response when user is in an active survey. Returns True if handled, False otherwise."""
+        try:
+            if chat_id not in self.survey_state:
+                return False
+                
+            state = self.survey_state[chat_id]
+            if "survey" not in state or "current_question" not in state:
+                logger.error(f"Invalid survey state for {chat_id}")
+                return False
+                
+            logger.info(f"Processing survey response for question {state['current_question']}")
+            await self.process_survey_answer(chat_id, {"type": "text", "content": message})
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error in handle_survey_response: {str(e)}")
+            logger.error(f"Stack trace: {traceback.format_exc()}")
+            return False
+
     async def handle_text_message(self, chat_id: str, message: str, sender_name: str = "") -> None:
         """Handle incoming text messages"""
         try:
             logger.info(f"Starting handle_text_message for chat_id: {chat_id}, message: {message}")
             message = message.strip()
-            
-            # First check if user is in an active survey
-            if chat_id in self.survey_state:
-                state = self.survey_state[chat_id]
-                logger.info(f"User in active survey state, current question: {state.get('current_question')}")
-                
-                # Check for survey exit command
-                if message.lower() == "הפסקת שאלון":
-                    logger.info("Processing survey exit command")
-                    survey = state["survey"]
-                    try:
-                        await self.update_airtable_record(
-                            state["record_id"],
-                            {"סטטוס": "בוטל"},
-                            survey
-                        )
-                    except Exception as e:
-                        logger.error(f"Error updating Airtable status on survey exit: {str(e)}")
-                    
-                    del self.survey_state[chat_id]
-                    await self.send_message_with_retry(chat_id, "השאלון הופסק. תודה על זמנך! 🙏")
-                    return
-                
-                # Process regular survey answer
-                logger.info(f"Processing regular survey answer for question {state['current_question']}")
-                await self.process_survey_answer(chat_id, {"type": "text", "content": message})
+
+            # First check if this is a survey response
+            if await self.handle_survey_response(chat_id, message):
+                logger.info("Message handled as survey response")
                 return
-            
+
             # Then check if we're in the middle of scheduling a meeting
             if chat_id in self.meeting_state:
                 meeting_state = self.meeting_state[chat_id]
@@ -1212,19 +1210,17 @@ class WhatsAppSurveyBot:
                     logger.info(f"Handling time selection for meeting: {message}")
                     await self.handle_time_selection(chat_id, message)
                     return
-            
+
             # Check for meeting request keywords
             if message.lower() in ["פגישה", "קביעת פגישה", "תיאום פגישה"]:
                 logger.info("Handling new meeting request")
                 await self.handle_meeting_request(chat_id)
                 return
-            
+
             # Finally check if this is a trigger for a new survey
             new_survey = self.get_survey_by_trigger(message)
             if new_survey:
                 logger.info(f"Found new survey trigger: {new_survey.name}")
-                # Create initial record and start new survey
-                logger.info("Creating initial record for new survey")
                 record_id = self.create_initial_record(chat_id, sender_name, new_survey)
                 if record_id:
                     self.survey_state[chat_id] = {
@@ -1234,9 +1230,8 @@ class WhatsAppSurveyBot:
                         "survey": new_survey,
                         "last_activity": datetime.now()
                     }
-                    # Send welcome message first
                     await self.send_message_with_retry(chat_id, new_survey.messages["welcome"])
-                    await asyncio.sleep(1.5)  # Add a small delay between messages
+                    await asyncio.sleep(1.5)
                     await self.send_next_question(chat_id)
                 else:
                     await self.send_message_with_retry(
@@ -1244,7 +1239,7 @@ class WhatsAppSurveyBot:
                         "מצטערים, הייתה שגיאה בהתחלת השאלון. נא לנסות שוב."
                     )
                 return
-            
+
         except Exception as e:
             logger.error(f"Error handling text message: {str(e)}")
             logger.error(f"Stack trace: {traceback.format_exc()}")
