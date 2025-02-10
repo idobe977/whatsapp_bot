@@ -641,59 +641,9 @@ class WhatsAppSurveyBot:
                 await self.send_message_with_retry(chat_id, reflection)
                 await asyncio.sleep(1.5)
             
-            if airtable_success and answer.get("is_final", True):
-                # Handle flow logic
-                next_question_id = None
-                custom_message = None
-                
-                if "flow" in current_question:
-                    flow = current_question["flow"]
-                    user_answer = answer["content"]
-                    
-                    # For poll questions, get the full answer text
-                    if current_question["type"] == "poll":
-                        user_answer = user_answer.split(", ")[0]  # Get first selected option
-                    
-                    # Check if conditions
-                    if "if" in flow:
-                        if_condition = flow["if"]
-                        if user_answer == if_condition["answer"]:
-                            next_question_id = if_condition["then"].get("goto")
-                            custom_message = if_condition["then"].get("say")
-                        elif "else_if" in flow:
-                            # Handle else_if as a list of conditions
-                            if isinstance(flow["else_if"], list):
-                                for else_if_condition in flow["else_if"]:
-                                    if user_answer == else_if_condition["answer"]:
-                                        next_question_id = else_if_condition["then"].get("goto")
-                                        custom_message = else_if_condition["then"].get("say")
-                                        break
-                            # Handle else_if as a single condition
-                            elif isinstance(flow["else_if"], dict):
-                                else_if_condition = flow["else_if"]
-                                if user_answer == else_if_condition["answer"]:
-                                    next_question_id = else_if_condition["then"].get("goto")
-                                    custom_message = else_if_condition["then"].get("say")
-                    # Check for simple then flow
-                    elif "then" in flow:
-                        next_question_id = flow["then"].get("goto")
-                        custom_message = flow["then"].get("say")
-                
-                # Send custom message if exists
-                if custom_message:
-                    await self.send_message_with_retry(chat_id, custom_message)
-                    await asyncio.sleep(1.5)
-                
-                # Find next question index
-                if next_question_id:
-                    next_index = next((i for i, q in enumerate(survey.questions) if q["id"] == next_question_id), None)
-                    if next_index is not None:
-                        state["current_question"] = next_index
-                    else:
-                        state["current_question"] += 1
-                else:
-                    state["current_question"] += 1
-                
+            if airtable_success:
+                # Move to next question
+                state["current_question"] += 1
                 state.pop("selected_options", None)
                 state.pop("last_poll_response", None)
                 
@@ -707,7 +657,7 @@ class WhatsAppSurveyBot:
                     )
                 
                 await self.send_next_question(chat_id)
-            elif not airtable_success:
+            else:
                 await self.send_message_with_retry(
                     chat_id, 
                     survey.messages["error"]
