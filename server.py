@@ -32,7 +32,7 @@ async def health_check():
 
 if __name__ == "__main__":
     # Get port from environment variable (Render.com sets this)
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT", 8003))
     
     # Log the port being used
     logger.info(f"Starting server on port {port}")
