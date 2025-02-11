@@ -1,7 +1,8 @@
 {
   "name": "שאלון מחקר",
   "trigger_phrases": [
-    "שאלון מחקר"
+    "שאלון מחקר",
+    "אשמח לקחת חלק בשאלון😊"
   ],
   "airtable": {
     "base_id": "appjvjnGLFopOf75b",
@@ -10,14 +11,14 @@
   "calendar_settings": {
     "calendar_id": "idobe97@gmail.com",
     "working_hours": {
-      "sunday": {"start": "09:00", "end": "17:00"},
-      "monday": {"start": "09:00", "end": "17:00"},
-      "tuesday": {"start": "09:00", "end": "17:00"},
-      "wednesday": {"start": "09:00", "end": "17:00"},
-      "thursday": {"start": "09:00", "end": "17:00"}
+      "sunday": {"start": "09:00", "end": "14:00"},
+      "monday": {"start": "09:00", "end": "14:00"},
+      "tuesday": {"start": "09:00", "end": "11:00"},
+      "wednesday": {"start": "09:00", "end": "14:00"},
+      "thursday": {"start": "09:00", "end": "11:00"}
     },
-    "meeting_duration": 45,
-    "buffer_between_meetings": 15,
+    "meeting_duration": 30,
+    "buffer_between_meetings": 30,
     "days_to_show": 7,
     "timezone": "Asia/Jerusalem",
     "meeting_title_template": "פגישת ייעוץ עם {{שם מלא}}",
