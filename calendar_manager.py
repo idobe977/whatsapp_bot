@@ -9,11 +9,13 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 import base64
 import urllib.parse
+from functools import lru_cache
+import hashlib
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
@@ -30,32 +32,17 @@ class TimeSlot:
 class CalendarManager:
     def __init__(self):
         """Initialize the calendar manager with service account credentials from environment."""
-        logger.info("Initializing CalendarManager")
         self.service = None
-        
-        # Validate timezone
-        try:
-            self.timezone = pytz.timezone('Asia/Jerusalem')
-        except pytz.exceptions.UnknownTimeZoneError:
-            logger.error("Invalid timezone: Asia/Jerusalem")
-            self.timezone = pytz.UTC
-            logger.info("Defaulting to UTC timezone")
-            
+        self.timezone = pytz.timezone('Asia/Jerusalem')
         self.available_slots_cache = {}
         self.cache_expiry = 300  # 5 minutes
         
         try:
-            # Get service account info from environment variable
             service_account_json = os.getenv('GOOGLE_SERVICE_ACCOUNT')
             if not service_account_json:
                 raise ValueError("GOOGLE_SERVICE_ACCOUNT environment variable not set")
             
-            try:
-                service_account_info = json.loads(service_account_json)
-                logger.info("Successfully parsed service account JSON from environment")
-            except json.JSONDecodeError:
-                logger.error("Invalid JSON in GOOGLE_SERVICE_ACCOUNT environment variable")
-                raise
+            service_account_info = json.loads(service_account_json)
             
             # Validate required fields
             required_fields = ['type', 'project_id', 'private_key_id', 'private_key', 
@@ -65,77 +52,69 @@ class CalendarManager:
             if missing_fields:
                 raise ValueError(f"Missing required fields in service account: {', '.join(missing_fields)}")
             
-            # Clean and validate private key format
-            private_key = service_account_info['private_key'].strip()
-            
-            # Validate key markers
-            if not private_key.startswith('-----BEGIN PRIVATE KEY-----'):
-                raise ValueError("Invalid private key format - missing BEGIN marker")
-            if not private_key.endswith('-----END PRIVATE KEY-----'):
-                raise ValueError("Invalid private key format - missing END marker")
-            
             # Format private key
-            key_lines = private_key.split('\n')
-            if len(key_lines) < 3:
-                raise ValueError("Invalid private key format - key too short")
-            
-            service_account_info['private_key'] = '\n'.join([
-                '-----BEGIN PRIVATE KEY-----',
-                *[line.strip() for line in key_lines[1:-1] if line.strip()],
-                '-----END PRIVATE KEY-----\n'
-            ])
+            private_key = service_account_info['private_key'].strip()
+            service_account_info['private_key'] = self._format_private_key(private_key)
             
             # Create credentials
-            logger.info("Creating service account credentials")
             credentials = service_account.Credentials.from_service_account_info(
                 service_account_info,
-                scopes=['https://www.googleapis.com/auth/calendar']
+                scopes=SCOPES
             )
             
             # Store service account email for later use
             self.service_account_email = service_account_info['client_email']
-            logger.info(f"Created credentials for subject: {credentials.service_account_email}")
             
-            # Test credentials
-            if not credentials.valid:
-                logger.error("Credentials are not valid")
-                if credentials.expired:
-                    logger.error("Credentials are expired")
-                if not credentials.has_scopes(['https://www.googleapis.com/auth/calendar']):
-                    logger.error("Credentials missing required scopes")
-            
-            logger.info("Building calendar service")
             self.service = build('calendar', 'v3', credentials=credentials)
             
             # Test API access
-            logger.info("Testing calendar API access")
-            try:
-                test_date = datetime.now()
-                test_query = {
-                    "timeMin": test_date.isoformat() + 'Z',
-                    "timeMax": (test_date + timedelta(minutes=1)).isoformat() + 'Z',
-                    "items": [{"id": "primary"}]
-                }
-                self.service.freebusy().query(body=test_query).execute()
-                logger.info("Successfully verified calendar API access")
-            except Exception as api_error:
-                logger.error(f"Calendar API test failed: {str(api_error)}")
-                if hasattr(api_error, 'response') and api_error.response:
-                    logger.error(f"API Error response: {api_error.response.text}")
-                raise
-            
-            logger.info("Calendar service initialized successfully")
+            self._test_api_access()
             
         except Exception as e:
             logger.error(f"Failed to initialize calendar service: {str(e)}")
+            raise
+
+    def _format_private_key(self, private_key: str) -> str:
+        """Format private key for proper use."""
+        if not private_key.startswith('-----BEGIN PRIVATE KEY-----'):
+            raise ValueError("Invalid private key format - missing BEGIN marker")
+        if not private_key.endswith('-----END PRIVATE KEY-----'):
+            raise ValueError("Invalid private key format - missing END marker")
+        
+        key_lines = private_key.split('\n')
+        if len(key_lines) < 3:
+            raise ValueError("Invalid private key format - key too short")
+        
+        return '\n'.join([
+            '-----BEGIN PRIVATE KEY-----',
+            *[line.strip() for line in key_lines[1:-1] if line.strip()],
+            '-----END PRIVATE KEY-----\n'
+        ])
+
+    def _test_api_access(self) -> None:
+        """Test calendar API access."""
+        try:
+            test_date = datetime.now()
+            test_query = {
+                "timeMin": test_date.isoformat() + 'Z',
+                "timeMax": (test_date + timedelta(minutes=1)).isoformat() + 'Z',
+                "items": [{"id": "primary"}]
+            }
+            self.service.freebusy().query(body=test_query).execute()
+        except Exception as api_error:
+            logger.error("Calendar API test failed")
+            if hasattr(api_error, 'response') and api_error.response:
+                logger.error(f"API Error response: {api_error.response.text}")
             raise
 
     def ensure_authenticated(self) -> bool:
         """Check if service is initialized."""
         return self.service is not None
 
-    def get_working_hours(self, settings: Dict) -> Dict[str, Dict[str, str]]:
-        """Get working hours from settings."""
+    @lru_cache(maxsize=100)
+    def get_working_hours(self, settings_hash: str) -> Dict[str, Dict[str, str]]:
+        """Get working hours from settings with caching."""
+        settings = json.loads(settings_hash)
         return settings.get('working_hours', {
             'sunday': {'start': '09:00', 'end': '17:00'},
             'monday': {'start': '09:00', 'end': '17:00'},
@@ -143,6 +122,10 @@ class CalendarManager:
             'wednesday': {'start': '09:00', 'end': '17:00'},
             'thursday': {'start': '09:00', 'end': '17:00'}
         })
+
+    def _hash_settings(self, settings: Dict) -> str:
+        """Create a hash of settings for cache key."""
+        return hashlib.md5(json.dumps(settings, sort_keys=True).encode()).hexdigest()
 
     def _is_within_working_hours(self, dt: datetime, working_hours: Dict) -> bool:
         """Check if datetime is within working hours."""
@@ -204,17 +187,15 @@ class CalendarManager:
 
     def get_available_slots(self, settings: Dict, date: datetime) -> List[TimeSlot]:
         """Get available time slots for a specific date."""
-        if not settings:
-            logger.error("No calendar settings provided")
-            return []
-
-        if not self.ensure_authenticated():
-            logger.error("Calendar service not initialized")
+        if not settings or not self.ensure_authenticated():
             return []
 
         try:
-            # Check cache first
-            cache_key = f"{date.date()}_{json.dumps(settings)}"
+            # Create cache key
+            settings_hash = self._hash_settings(settings)
+            cache_key = f"{date.date()}_{settings_hash}"
+            
+            # Check cache
             if cache_key in self.available_slots_cache:
                 cache_time, slots = self.available_slots_cache[cache_key]
                 if (datetime.now() - cache_time).total_seconds() < self.cache_expiry:
@@ -223,18 +204,16 @@ class CalendarManager:
             calendar_id = settings.get('calendar_id', 'primary')
             meeting_duration = settings.get('meeting_duration', 30)
             buffer_time = settings.get('buffer_between_meetings', 15)
-            working_hours = self.get_working_hours(settings)
+            working_hours = self.get_working_hours(json.dumps(settings))
             
-            # Set start and end time for the day
-            start_time = datetime.combine(date.date(), datetime.min.time())
-            end_time = datetime.combine(date.date(), datetime.max.time())
-            start_time = self.timezone.localize(start_time)
-            end_time = self.timezone.localize(end_time)
+            # Set time range
+            start_time = self.timezone.localize(datetime.combine(date.date(), datetime.min.time()))
+            end_time = self.timezone.localize(datetime.combine(date.date(), datetime.max.time()))
             
             # Get busy periods
             busy_periods = self._get_busy_periods(calendar_id, start_time, end_time)
             
-            # Generate all possible slots
+            # Generate available slots
             available_slots = []
             current_time = start_time
             
@@ -242,24 +221,23 @@ class CalendarManager:
                 if self._is_within_working_hours(current_time, working_hours):
                     slot_end = current_time + timedelta(minutes=meeting_duration)
                     
-                    # Check if slot overlaps with any busy period
-                    is_available = True
-                    for busy in busy_periods:
-                        busy_start = datetime.fromisoformat(busy['start'].replace('Z', '+00:00'))
-                        busy_end = datetime.fromisoformat(busy['end'].replace('Z', '+00:00'))
-                        
-                        if (current_time < busy_end and 
-                            slot_end > busy_start):
-                            is_available = False
-                            break
-                    
-                    if is_available:
+                    if not any(
+                        current_time < datetime.fromisoformat(busy['end'].replace('Z', '+00:00')) and
+                        slot_end > datetime.fromisoformat(busy['start'].replace('Z', '+00:00'))
+                        for busy in busy_periods
+                    ):
                         available_slots.append(TimeSlot(current_time, slot_end))
                 
                 current_time += timedelta(minutes=meeting_duration + buffer_time)
             
-            # Cache the results
+            # Update cache
             self.available_slots_cache[cache_key] = (datetime.now(), available_slots)
+            
+            # Cleanup old cache entries if needed
+            if len(self.available_slots_cache) > 1000:
+                oldest_key = min(self.available_slots_cache.keys(), 
+                               key=lambda k: self.available_slots_cache[k][0])
+                del self.available_slots_cache[oldest_key]
             
             return available_slots
             
@@ -410,6 +388,7 @@ class CalendarManager:
             return None
 
     def clear_cache(self) -> None:
-        """Clear the available slots cache."""
-        self.available_slots_cache = {}
+        """Clear all caches."""
+        self.available_slots_cache.clear()
+        self.get_working_hours.cache_clear()  # Clear LRU cache
         logger.info("Cleared calendar cache") 
