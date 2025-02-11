@@ -265,6 +265,7 @@ class CalendarManager:
                 return None
 
             calendar_id = settings.get('calendar_id', 'primary')
+            logger.info(f"Scheduling meeting in calendar: {calendar_id}")
             
             # Format meeting title and description using templates
             title_template = settings.get('meeting_title_template', 'פגישה עם {{שם מלא}}')
@@ -278,16 +279,36 @@ class CalendarManager:
                 title = title.replace(f"{{{{{key}}}}}", str(value))
                 description = description.replace(f"{{{{{key}}}}}", str(value))
             
+            # Ensure timezone is properly set
+            start_time = slot.start_time
+            end_time = slot.end_time
+            if not start_time.tzinfo:
+                start_time = self.timezone.localize(start_time)
+            if not end_time.tzinfo:
+                end_time = self.timezone.localize(end_time)
+            
+            logger.info(f"Creating event: {title}")
+            logger.info(f"Start time: {start_time.isoformat()}")
+            logger.info(f"End time: {end_time.isoformat()}")
+            logger.info(f"Timezone: {self.timezone.zone}")
+            
             event = {
                 'summary': title,
                 'description': description,
                 'start': {
-                    'dateTime': slot.start_time.isoformat(),
+                    'dateTime': start_time.isoformat(),
                     'timeZone': self.timezone.zone,
                 },
                 'end': {
-                    'dateTime': slot.end_time.isoformat(),
+                    'dateTime': end_time.isoformat(),
                     'timeZone': self.timezone.zone,
+                },
+                'reminders': {
+                    'useDefault': False,
+                    'overrides': [
+                        {'method': 'popup', 'minutes': 24 * 60},  # 24 hours before
+                        {'method': 'popup', 'minutes': 60},  # 1 hour before
+                    ]
                 }
             }
             
@@ -295,14 +316,21 @@ class CalendarManager:
             if 'email' in attendee_data:
                 event['attendees'] = [{'email': attendee_data['email']}]
             
-            event = self.service.events().insert(
-                calendarId=calendar_id,
-                body=event,
-                sendUpdates='all' if 'email' in attendee_data else 'none'
-            ).execute()
-            
-            logger.info(f"Successfully scheduled meeting: {event.get('id')}")
-            return event.get('id')
+            try:
+                event = self.service.events().insert(
+                    calendarId=calendar_id,
+                    body=event,
+                    sendUpdates='all' if 'email' in attendee_data else 'none'
+                ).execute()
+                
+                logger.info(f"Successfully scheduled meeting: {event.get('id')}")
+                logger.info(f"Event link: {event.get('htmlLink')}")
+                return event.get('id')
+            except Exception as api_error:
+                logger.error(f"Google Calendar API error: {str(api_error)}")
+                if hasattr(api_error, 'response') and api_error.response:
+                    logger.error(f"API Error response: {api_error.response.text}")
+                raise
             
         except Exception as e:
             logger.error(f"Error scheduling meeting: {str(e)}")
