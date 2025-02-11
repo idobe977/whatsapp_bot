@@ -77,6 +77,7 @@ class SurveyDefinition:
     airtable_base_id: str = None
     messages: Dict = None
     ai_prompts: Dict = None
+    calendar_settings: Dict = None
 
     def __post_init__(self):
         self.airtable_base_id = self.airtable_base_id or os.getenv("AIRTABLE_BASE_ID")
@@ -106,6 +107,7 @@ class SurveyDefinition:
                 "include_recommendations": True
             }
         }
+        self.calendar_settings = self.calendar_settings or {}
 
 def load_surveys_from_json() -> List[SurveyDefinition]:
     """Load all survey definitions from JSON files in the surveys directory"""
@@ -128,8 +130,9 @@ def load_surveys_from_json() -> List[SurveyDefinition]:
                 airtable_table_id=data['airtable']['table_id'],
                 airtable_base_id=data['airtable'].get('base_id'),
                 questions=data['questions'],
-                messages=data['messages'],
-                ai_prompts=data['ai_prompts']
+                messages=data.get('messages'),
+                ai_prompts=data.get('ai_prompts'),
+                calendar_settings=data.get('calendar_settings')
             )
             surveys.append(survey)
             logger.info(f"Successfully loaded survey: {survey.name} from {file_path}")
@@ -572,6 +575,7 @@ class WhatsAppSurveyBot:
         return text.strip()
 
     async def process_survey_answer(self, chat_id: str, answer: Dict[str, str]) -> None:
+        """Process a survey answer."""
         try:
             logger.info(f"Processing survey answer for chat_id: {chat_id}")
             
@@ -1093,7 +1097,7 @@ class WhatsAppSurveyBot:
             survey = state["survey"]
             
             # Get calendar settings from survey
-            calendar_settings = getattr(survey, 'calendar_settings', None)
+            calendar_settings = survey.calendar_settings if hasattr(survey, 'calendar_settings') else None
             if not calendar_settings:
                 logger.error("No calendar settings found in survey configuration")
                 await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בתהליך קביעת הפגישה.")
