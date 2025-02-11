@@ -29,41 +29,59 @@ class TimeSlot:
         return f"{self.start_time.strftime('%H:%M')} - {self.end_time.strftime('%H:%M')}"
 
 class CalendarManager:
-    def __init__(self):
+    def __init__(self, service_account_file: str = 'credentials/service-account.json'):
+        """Initialize the calendar manager with service account credentials."""
+        self.SERVICE_ACCOUNT_FILE = service_account_file
         self.service = None
         self.timezone = pytz.timezone('Asia/Jerusalem')
         self.available_slots_cache = {}
         self.cache_expiry = 300  # 5 minutes
-        self._initialize_service()
-        logger.info("Calendar Manager initialized")
-
-    def _initialize_service(self) -> None:
-        """Initialize the Google Calendar service using service account."""
+        
         try:
-            logger.info(f"Attempting to initialize calendar service from: {os.path.abspath(SERVICE_ACCOUNT_FILE)}")
+            # Validate service account file
+            self._validate_service_account_file()
             
-            if not os.path.exists(SERVICE_ACCOUNT_FILE):
-                logger.error(f"Service account file not found at {os.path.abspath(SERVICE_ACCOUNT_FILE)}")
-                return
-
-            with open(SERVICE_ACCOUNT_FILE, 'r') as f:
-                file_content = f.read()
-                logger.info(f"Successfully read service account file, length: {len(file_content)} bytes")
-
+            # Get absolute path of service account file
+            abs_path = os.path.abspath(self.SERVICE_ACCOUNT_FILE)
+            logger.info(f"Using service account file at: {abs_path}")
+            
+            # Initialize the Calendar API
             credentials = service_account.Credentials.from_service_account_file(
-                SERVICE_ACCOUNT_FILE, 
-                scopes=SCOPES
+                self.SERVICE_ACCOUNT_FILE,
+                scopes=['https://www.googleapis.com/auth/calendar']
             )
-            logger.info("Successfully created credentials from service account")
             
             self.service = build('calendar', 'v3', credentials=credentials)
-            logger.info("Successfully initialized Google Calendar service with service account")
+            logger.info("Calendar service initialized successfully")
             
+        except FileNotFoundError:
+            logger.error(f"Service account file not found at: {self.SERVICE_ACCOUNT_FILE}")
+            raise
         except Exception as e:
-            logger.error(f"Error initializing calendar service: {str(e)}")
-            logger.error(f"Error type: {type(e).__name__}")
-            if hasattr(e, 'response'):
-                logger.error(f"Response content: {e.response.text}")
+            logger.error(f"Failed to initialize calendar service: {str(e)}")
+            raise
+
+    def _validate_service_account_file(self) -> None:
+        """Validate service account file format."""
+        try:
+            with open(self.SERVICE_ACCOUNT_FILE, 'r') as f:
+                json_content = json.load(f)
+                
+            required_fields = ['type', 'project_id', 'private_key_id', 'private_key', 
+                             'client_email', 'client_id']
+            
+            for field in required_fields:
+                if field not in json_content:
+                    raise ValueError(f"Missing required field '{field}' in service account JSON")
+                    
+            logger.info(f"Service account file validated successfully")
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON format in service account file: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Error validating service account file: {str(e)}")
+            raise 
 
     def ensure_authenticated(self) -> bool:
         """Check if service is initialized."""
@@ -106,6 +124,26 @@ class CalendarManager:
         except Exception as e:
             logger.error(f"Error getting busy periods: {str(e)}")
             return []
+
+    def _format_date_for_display(self, date: datetime) -> str:
+        """Format date as 'יום שלישי 13/2'."""
+        day_name_map = {
+            'Sunday': 'ראשון',
+            'Monday': 'שני',
+            'Tuesday': 'שלישי',
+            'Wednesday': 'רביעי',
+            'Thursday': 'חמישי',
+            'Friday': 'שישי',
+            'Saturday': 'שבת'
+        }
+        
+        # Get Hebrew day name
+        day_name = day_name_map[date.strftime('%A')]
+        
+        # Format as D/M
+        date_str = date.strftime('%-d/%-m')  # Use - to remove leading zeros
+        
+        return f'יום {day_name} {date_str}'
 
     def get_available_slots(self, settings: Dict, date: datetime) -> List[TimeSlot]:
         """Get available time slots for a specific date."""
