@@ -84,6 +84,8 @@ class CalendarManager:
                 scopes=['https://www.googleapis.com/auth/calendar']
             )
             
+            # Store service account email for later use
+            self.service_account_email = service_account_info['client_email']
             logger.info(f"Created credentials for subject: {credentials.service_account_email}")
             
             # Test credentials
@@ -292,6 +294,13 @@ class CalendarManager:
             logger.info(f"End time: {end_time.isoformat()}")
             logger.info(f"Timezone: {self.timezone.zone}")
             
+            # Initialize attendees list with service account
+            attendees = [{'email': self.service_account_email}]
+            
+            # Add attendee email if provided
+            if 'email' in attendee_data:
+                attendees.append({'email': attendee_data['email']})
+            
             event = {
                 'summary': title,
                 'description': description,
@@ -303,24 +312,27 @@ class CalendarManager:
                     'dateTime': end_time.isoformat(),
                     'timeZone': self.timezone.zone,
                 },
+                'attendees': attendees,
                 'reminders': {
                     'useDefault': False,
                     'overrides': [
                         {'method': 'popup', 'minutes': 24 * 60},  # 24 hours before
                         {'method': 'popup', 'minutes': 60},  # 1 hour before
                     ]
-                }
+                },
+                'visibility': 'private',  # Make event private
+                'transparency': 'opaque',  # Show as busy
+                'guestsCanModify': False,  # Prevent guests from modifying
+                'guestsCanInviteOthers': False,  # Prevent guests from inviting others
+                'guestsCanSeeOtherGuests': False  # Prevent guests from seeing other guests
             }
-            
-            # Add attendee email if provided
-            if 'email' in attendee_data:
-                event['attendees'] = [{'email': attendee_data['email']}]
             
             try:
                 event = self.service.events().insert(
                     calendarId=calendar_id,
                     body=event,
-                    sendUpdates='all' if 'email' in attendee_data else 'none'
+                    sendUpdates='all' if 'email' in attendee_data else 'none',
+                    supportsAttachments=True
                 ).execute()
                 
                 logger.info(f"Successfully scheduled meeting: {event.get('id')}")
