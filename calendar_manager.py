@@ -35,10 +35,10 @@ class CalendarManager:
     def __init__(self):
         self.service = None
         self.credentials = None
-        self._initialize_service()
         self.timezone = pytz.timezone('Asia/Jerusalem')
         self.available_slots_cache = {}
         self.cache_expiry = 300  # 5 minutes
+        logger.info("Calendar Manager initialized without authentication")
 
     def _get_credentials_path(self, user_id: str = 'default') -> str:
         """Get the path for storing credentials."""
@@ -78,81 +78,37 @@ class CalendarManager:
             logger.error(f"Error saving credentials to file: {str(e)}")
             return False
 
-    def _initialize_service(self, user_id: str = 'default') -> None:
-        """Initialize the Google Calendar service."""
+    def ensure_authenticated(self, user_id: str = 'default') -> bool:
+        """Ensure the service is authenticated before use."""
         try:
+            if self.service is not None:
+                return True
+
             creds = self._get_credentials_from_file(user_id)
                 
             if not creds or not creds.valid:
                 if creds and creds.expired and creds.refresh_token:
                     creds.refresh(Request())
+                    self._save_credentials_to_file(user_id, creds)
                 else:
-                    # Use environment variables for production
-                    client_config = {
-                        "web": {
-                            "client_id": os.getenv("GOOGLE_CLIENT_ID"),
-                            "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
-                            "redirect_uris": [os.getenv("GOOGLE_REDIRECT_URI")],
-                            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                            "token_uri": "https://oauth2.googleapis.com/token"
-                        }
-                    }
-                    
-                    flow = InstalledAppFlow.from_client_config(
-                        client_config,
-                        SCOPES,
-                        redirect_uri=os.getenv("GOOGLE_REDIRECT_URI")
-                    )
-                    
-                    # For production, we'll use the authorization URL
-                    auth_url, state = flow.authorization_url(access_type='offline')
-                    logger.info(f"Authorization URL: {auth_url}")
-                    
-                    # Store flow configuration in a temporary file
-                    flow_config = {
-                        'client_id': os.getenv("GOOGLE_CLIENT_ID"),
-                        'client_secret': os.getenv("GOOGLE_CLIENT_SECRET"),
-                        'redirect_uri': os.getenv("GOOGLE_REDIRECT_URI"),
-                        'state': state,
-                        'scope': SCOPES
-                    }
-                    
-                    flow_path = os.path.join(CREDENTIALS_DIR, f'{user_id}_flow.json')
-                    with open(flow_path, 'w') as f:
-                        json.dump(flow_config, f)
-                    
-                    raise Exception(f"Authentication required. Please visit the authorization URL: {auth_url}")
-                
-                # Save the credentials
-                self._save_credentials_to_file(user_id, creds)
+                    return False
 
             self.service = build('calendar', 'v3', credentials=creds)
             logger.info("Successfully initialized Google Calendar service")
+            return True
             
         except Exception as e:
-            logger.error(f"Error initializing Google Calendar service: {str(e)}")
-            raise
+            logger.error(f"Error ensuring authentication: {str(e)}")
+            return False
 
-    async def handle_oauth_callback(self, user_id: str, code: str) -> bool:
-        """Handle OAuth callback and save credentials."""
+    def start_auth_flow(self, user_id: str = 'default') -> str:
+        """Start the OAuth flow and return the authorization URL."""
         try:
-            # Get flow configuration from temporary file
-            flow_path = os.path.join(CREDENTIALS_DIR, f'{user_id}_flow.json')
-            if not os.path.exists(flow_path):
-                raise Exception("No OAuth flow configuration found")
-                
-            with open(flow_path, 'r') as f:
-                flow_config = json.load(f)
-            
-            # Clean up flow file
-            os.remove(flow_path)
-            
-            # Create new flow with saved configuration
             client_config = {
                 "web": {
-                    "client_id": flow_config['client_id'],
-                    "client_secret": flow_config['client_secret'],
-                    "redirect_uris": [flow_config['redirect_uri']],
+                    "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+                    "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+                    "redirect_uris": [os.getenv("GOOGLE_REDIRECT_URI")],
                     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                     "token_uri": "https://oauth2.googleapis.com/token"
                 }
@@ -160,24 +116,30 @@ class CalendarManager:
             
             flow = InstalledAppFlow.from_client_config(
                 client_config,
-                flow_config['scope'],
-                redirect_uri=flow_config['redirect_uri']
+                SCOPES,
+                redirect_uri=os.getenv("GOOGLE_REDIRECT_URI")
             )
             
-            # Fetch token
-            flow.fetch_token(code=code)
+            auth_url, state = flow.authorization_url(access_type='offline')
             
-            # Save credentials
-            self._save_credentials_to_file(user_id, flow.credentials)
+            # Store flow configuration in a temporary file
+            flow_config = {
+                'client_id': os.getenv("GOOGLE_CLIENT_ID"),
+                'client_secret': os.getenv("GOOGLE_CLIENT_SECRET"),
+                'redirect_uri': os.getenv("GOOGLE_REDIRECT_URI"),
+                'state': state,
+                'scope': SCOPES
+            }
             
-            # Initialize service with new credentials
-            self._initialize_service(user_id)
+            flow_path = os.path.join(CREDENTIALS_DIR, f'{user_id}_flow.json')
+            with open(flow_path, 'w') as f:
+                json.dump(flow_config, f)
             
-            return True
+            return auth_url
             
         except Exception as e:
-            logger.error(f"Error in OAuth callback: {str(e)}")
-            return False
+            logger.error(f"Error starting auth flow: {str(e)}")
+            raise
 
     def get_working_hours(self, settings: Dict) -> Dict[str, Dict[str, str]]:
         """Get working hours from settings."""
@@ -219,6 +181,9 @@ class CalendarManager:
 
     def get_available_slots(self, settings: Dict, date: datetime) -> List[TimeSlot]:
         """Get available time slots for a specific date."""
+        if not self.ensure_authenticated():
+            raise Exception("Authentication required")
+
         try:
             # Check cache first
             cache_key = f"{date.date()}_{json.dumps(settings)}"
