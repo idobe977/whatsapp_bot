@@ -897,7 +897,8 @@ class WhatsAppSurveyBot:
             
             # Clean the answer by removing emojis and special characters
             cleaned_answer = answer_content
-            for emoji in ["⚡", "⏱️", "⏰", "😊", "🙈", "🎁", "🎉"]:
+            # for emoji in ["⚡", "⏱️", "⏰", "😊", "🙈", "🎁", "🎉"]:
+            for emoji in ["⚡", "⏱️", "⏰",  "🙈", "🎁", "🎉"]:
                 cleaned_answer = cleaned_answer.replace(emoji, "")
             cleaned_answer = cleaned_answer.strip()
             
