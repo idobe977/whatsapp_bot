@@ -17,7 +17,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-SCOPES = ['https://www.googleapis.com/auth/calendar']
+SCOPES = [
+    'https://www.googleapis.com/auth/calendar',
+    'https://www.googleapis.com/auth/calendar.events',
+    'https://www.googleapis.com/auth/calendar.settings.readonly'
+]
 SERVICE_ACCOUNT_FILE = 'credentials/service-account.json'
 
 @dataclass
@@ -31,57 +35,122 @@ class TimeSlot:
 class CalendarManager:
     def __init__(self, service_account_file: str = 'credentials/service-account.json'):
         """Initialize the calendar manager with service account credentials."""
-        self.SERVICE_ACCOUNT_FILE = service_account_file
         self.service = None
         self.timezone = pytz.timezone('Asia/Jerusalem')
         self.available_slots_cache = {}
         self.cache_expiry = 300  # 5 minutes
         
         try:
-            # Validate service account file
-            self._validate_service_account_file()
+            # Try different possible file names
+            possible_files = [
+                service_account_file,
+                service_account_file + '.json',
+                service_account_file.replace('.json', '') + '.json'
+            ]
             
-            # Get absolute path of service account file
+            self.SERVICE_ACCOUNT_FILE = None
+            for file_path in possible_files:
+                if os.path.exists(file_path):
+                    self.SERVICE_ACCOUNT_FILE = file_path
+                    break
+            
+            if not self.SERVICE_ACCOUNT_FILE:
+                raise FileNotFoundError(f"Service account file not found. Tried: {', '.join(possible_files)}")
+            
+            # Get absolute path and log it
             abs_path = os.path.abspath(self.SERVICE_ACCOUNT_FILE)
-            logger.info(f"Using service account file at: {abs_path}")
+            logger.info(f"Found service account file at: {abs_path}")
             
-            # Initialize the Calendar API
+            # Read and validate the file content
+            with open(self.SERVICE_ACCOUNT_FILE, 'r') as f:
+                try:
+                    json_content = json.load(f)
+                    logger.info(f"Successfully read service account file, size: {len(str(json_content))} bytes")
+                    
+                    # Validate required fields
+                    required_fields = ['type', 'project_id', 'private_key_id', 'private_key', 
+                                     'client_email', 'client_id']
+                    missing_fields = [field for field in required_fields if field not in json_content]
+                    if missing_fields:
+                        raise ValueError(f"Missing required fields in service account JSON: {', '.join(missing_fields)}")
+                    
+                    # Store client email for later use
+                    self.client_email = json_content['client_email']
+                    
+                    # Clean and validate private key
+                    private_key = json_content['private_key']
+                    if not private_key.startswith('-----BEGIN PRIVATE KEY-----'):
+                        raise ValueError("Invalid private key format - missing BEGIN marker")
+                    if not private_key.strip().endswith('-----END PRIVATE KEY-----'):
+                        raise ValueError("Invalid private key format - missing END marker")
+                    
+                    # Remove any extra whitespace or newlines
+                    private_key_lines = private_key.strip().split('\n')
+                    if len(private_key_lines) < 3:
+                        raise ValueError("Invalid private key format - key too short")
+                    
+                    # Reconstruct private key with proper line breaks
+                    json_content['private_key'] = '\n'.join([
+                        '-----BEGIN PRIVATE KEY-----',
+                        *[line.strip() for line in private_key_lines[1:-1]],
+                        '-----END PRIVATE KEY-----\n'
+                    ])
+                    
+                    logger.info("Service account file validated successfully")
+                    
+                    # Write back the cleaned private key
+                    with open(self.SERVICE_ACCOUNT_FILE, 'w') as f:
+                        json.dump(json_content, f, indent=2)
+                    
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"Invalid JSON format in service account file: {str(e)}")
+            
+            # Initialize the Calendar API with explicit timezone
             credentials = service_account.Credentials.from_service_account_file(
                 self.SERVICE_ACCOUNT_FILE,
-                scopes=['https://www.googleapis.com/auth/calendar']
+                scopes=['https://www.googleapis.com/auth/calendar.events']
             )
             
             self.service = build('calendar', 'v3', credentials=credentials)
+            
+            # Test API access
+            try:
+                # Try to access the calendar directly instead of listing calendars
+                test_date = datetime.now()
+                test_query = {
+                    "timeMin": test_date.isoformat() + 'Z',
+                    "timeMax": (test_date + timedelta(minutes=1)).isoformat() + 'Z',
+                    "items": [{"id": "primary"}]
+                }
+                self.service.freebusy().query(body=test_query).execute()
+                logger.info("Successfully verified calendar API access")
+                
+            except Exception as api_error:
+                error_message = str(api_error)
+                if 'invalid_grant' in error_message:
+                    logger.error(f"Calendar API access denied. Please verify:")
+                    logger.error(f"1. Project '{json_content['project_id']}' is enabled in Google Cloud Console")
+                    logger.error(f"2. Google Calendar API is enabled for the project")
+                    logger.error(f"3. Calendar is shared with: {self.client_email}")
+                    raise ValueError("Calendar API access denied - see logs for details")
+                else:
+                    raise
+            
             logger.info("Calendar service initialized successfully")
             
-        except FileNotFoundError:
-            logger.error(f"Service account file not found at: {self.SERVICE_ACCOUNT_FILE}")
-            raise
         except Exception as e:
             logger.error(f"Failed to initialize calendar service: {str(e)}")
+            if isinstance(e, FileNotFoundError):
+                logger.error(f"Service account file not found at any of these locations: {', '.join(possible_files)}")
+            elif isinstance(e, json.JSONDecodeError):
+                logger.error("Service account file contains invalid JSON")
+            elif isinstance(e, ValueError):
+                logger.error(f"Service account validation error: {str(e)}")
+            else:
+                logger.error(f"Unexpected error type: {type(e).__name__}")
+                if hasattr(e, 'response'):
+                    logger.error(f"Response content: {e.response.text}")
             raise
-
-    def _validate_service_account_file(self) -> None:
-        """Validate service account file format."""
-        try:
-            with open(self.SERVICE_ACCOUNT_FILE, 'r') as f:
-                json_content = json.load(f)
-                
-            required_fields = ['type', 'project_id', 'private_key_id', 'private_key', 
-                             'client_email', 'client_id']
-            
-            for field in required_fields:
-                if field not in json_content:
-                    raise ValueError(f"Missing required field '{field}' in service account JSON")
-                    
-            logger.info(f"Service account file validated successfully")
-            
-        except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON format in service account file: {str(e)}")
-            raise
-        except Exception as e:
-            logger.error(f"Error validating service account file: {str(e)}")
-            raise 
 
     def ensure_authenticated(self) -> bool:
         """Check if service is initialized."""
