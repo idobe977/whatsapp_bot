@@ -2,6 +2,35 @@
 
 A WhatsApp bot that conducts dynamic surveys and manages responses using Green API, Airtable and Gemini AI.
 
+## Security Notice ⚠️
+
+**IMPORTANT**: Never commit sensitive credentials to Git! The following files should be kept secure and not shared:
+- `credentials/service-account.json`
+- `.env`
+
+## Credentials Setup
+
+1. **Google Calendar Service Account**:
+   - Create a new service account in Google Cloud Console
+   - Download the JSON key file
+   - Create a `credentials` directory locally: `mkdir credentials`
+   - Save the key as `credentials/service-account.json`
+   - Share your calendar with the service account email
+   - **DO NOT commit this file to Git!**
+
+2. **Environment Variables**:
+   - Copy `.env.example` to `.env`: `cp .env.example .env`
+   - Fill in your credentials in `.env`
+   - **DO NOT commit `.env` to Git!**
+
+### For Production Deployment
+
+For secure deployment (e.g., on Render.com):
+1. **DO NOT** upload credentials files to Git
+2. Instead, use environment variables or secrets management:
+   - For service account: Copy the entire content of `service-account.json` and save it as an environment variable `GOOGLE_SERVICE_ACCOUNT`
+   - The bot will automatically create the credentials file from this environment variable
+
 ## Features
 
 - Dynamic survey loading from JSON files
@@ -65,6 +94,9 @@ AIRTABLE_API_KEY=your_airtable_api_key
 AIRTABLE_BASE_ID=your_airtable_base_id
 AIRTABLE_BUSINESS_SURVEY_TABLE_ID=your_business_table_id
 AIRTABLE_RESEARCH_SURVEY_TABLE_ID=your_research_table_id
+
+# Google Service Account (for production)
+GOOGLE_SERVICE_ACCOUNT={"type":"service_account","project_id":"..."}
 ```
 
 4. Create your survey definitions in the `surveys` directory using JSON format:
