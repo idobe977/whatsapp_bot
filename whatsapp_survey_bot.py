@@ -1271,16 +1271,17 @@ class WhatsAppSurveyBot:
                     form.add_field('chatId', chat_id)
                     form.add_field('caption', "לחץ על הקובץ כדי להוסיף את הפגישה ליומן שלך 📅")
                     
-                    # Add file with proper content type
+                    # Keep file open until after sending
                     with open(result['ics_file'], 'rb') as f:
-                        form.add_field('file', f, 
+                        file_content = f.read()
+                        form.add_field('file', file_content, 
                             filename='meeting.ics',
                             content_type='text/calendar')
                     
-                    async with aiohttp.ClientSession() as session:
-                        async with session.post(url, data=form) as response:
-                            if response.status != 200:
-                                logger.error(f"Failed to send ICS file: {await response.text()}")
+                        async with aiohttp.ClientSession() as session:
+                            async with session.post(url, data=form) as response:
+                                if response.status != 200:
+                                    logger.error(f"Failed to send ICS file: {await response.text()}")
                     
                     # Clean up temporary file
                     os.remove(result['ics_file'])
@@ -1288,16 +1289,6 @@ class WhatsAppSurveyBot:
                 except Exception as e:
                     logger.error(f"Error sending ICS file: {str(e)}")
                     logger.error(f"Stack trace: {traceback.format_exc()}")
-                
-                # Add option to cancel/reschedule
-                options_message = (
-                    "*אפשרויות נוספות:*\n"
-                    "- לביטול הפגישה, שלח 'ביטול פגישה'\n"
-                    "- לשינוי מועד, שלח 'שינוי מועד'\n"
-                    "- להוספת הערות, שלח 'הוספת הערות'"
-                )
-                await asyncio.sleep(1)
-                await self.send_message_with_retry(chat_id, options_message)
                 
                 # Move to next question
                 state["current_question"] += 1
