@@ -20,6 +20,29 @@ logger = logging.getLogger(__name__)
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 SERVICE_ACCOUNT_FILE = 'credentials/service-account.json'
 
+def _ensure_credentials_dir():
+    """Ensure credentials directory exists and create service account file from env if needed."""
+    if not os.path.exists('credentials'):
+        os.makedirs('credentials')
+        logger.info("Created credentials directory")
+    
+    # If service account file doesn't exist but we have env var, create it
+    if not os.path.exists(SERVICE_ACCOUNT_FILE) and os.getenv('GOOGLE_SERVICE_ACCOUNT'):
+        try:
+            service_account_json = os.getenv('GOOGLE_SERVICE_ACCOUNT')
+            # Validate JSON format
+            json.loads(service_account_json)  # This will raise JSONDecodeError if invalid
+            
+            with open(SERVICE_ACCOUNT_FILE, 'w') as f:
+                f.write(service_account_json)
+            logger.info("Created service account file from environment variable")
+        except json.JSONDecodeError:
+            logger.error("Invalid JSON in GOOGLE_SERVICE_ACCOUNT environment variable")
+            raise
+        except Exception as e:
+            logger.error(f"Error creating service account file: {str(e)}")
+            raise
+
 @dataclass
 class TimeSlot:
     start_time: datetime
@@ -39,6 +62,9 @@ class CalendarManager:
         self.cache_expiry = 300  # 5 minutes
         
         try:
+            # Ensure credentials directory and file exist
+            _ensure_credentials_dir()
+            
             # Validate service account file
             self._validate_service_account_file()
             
