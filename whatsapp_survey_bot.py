@@ -1116,7 +1116,7 @@ class WhatsAppSurveyBot:
             
             if not available_dates:
                 await self.send_message_with_retry(
-                    chat_id, 
+                    chat_id,
                     question.get('no_slots_message', "מצטערים, אין זמנים פנויים כרגע.")
                 )
                 return
@@ -1128,8 +1128,9 @@ class WhatsAppSurveyBot:
                 'question': question
             }
             
-            # Create date selection poll
-            date_options = [d.strftime("%d/%m/%Y") for d in available_dates]
+            # Create date selection poll with formatted dates
+            date_options = [self.calendar_manager._format_date_for_display(datetime.combine(d, datetime.min.time())) 
+                          for d in available_dates]
             await self.send_poll(chat_id, {
                 'text': "באיזה תאריך תרצה/י לקבוע את הפגישה? 📅",
                 'options': date_options,
@@ -1150,8 +1151,36 @@ class WhatsAppSurveyBot:
                 logger.error("No meeting scheduler state found")
                 return
             
-            # Parse selected date
-            selected_date = datetime.strptime(selected_date_str, "%d/%m/%Y")
+            # Parse day name and date from selected format
+            day_name_map = {
+                'ראשון': 'Sunday',
+                'שני': 'Monday',
+                'שלישי': 'Tuesday',
+                'רביעי': 'Wednesday',
+                'חמישי': 'Thursday',
+                'שישי': 'Friday',
+                'שבת': 'Saturday'
+            }
+            
+            # Extract date from format "יום שלישי 13/2"
+            date_parts = selected_date_str.split(' ')
+            date_str = date_parts[-1]  # Get the actual date part
+            day, month = map(int, date_str.split('/'))
+            year = datetime.now().year
+            
+            # Find matching date from available dates
+            selected_date = None
+            for date in scheduler_state['available_dates']:
+                if date.day == day and date.month == month:
+                    selected_date = datetime.combine(date, datetime.min.time())
+                    break
+            
+            if not selected_date:
+                await self.send_message_with_retry(
+                    chat_id,
+                    "מצטערים, התאריך שנבחר אינו זמין יותר. אנא בחר תאריך אחר."
+                )
+                return
             
             # Get available slots for selected date
             slots = self.calendar_manager.get_available_slots(
@@ -1173,7 +1202,7 @@ class WhatsAppSurveyBot:
             # Create time selection poll
             time_options = [str(slot) for slot in slots]
             await self.send_poll(chat_id, {
-                'text': f"באיזו שעה תרצה/י לקבוע את הפגישה ב-{selected_date_str}? ⏰",
+                'text': f"באיזו שעה תרצה/י לקבוע את הפגישה ב{selected_date_str}? ⏰",
                 'options': time_options,
                 'type': 'poll'
             })
