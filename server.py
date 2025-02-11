@@ -50,21 +50,21 @@ async def oauth2callback(code: str, state: str = None):
 async def start_auth(user_id: str = 'default'):
     """Start OAuth2 authentication flow"""
     try:
-        # Initialize calendar service for user
-        bot.calendar_manager._initialize_service(user_id)
-        return {"status": "error", "message": "Authentication required"}
-    except Exception as e:
-        if "Authentication required" in str(e):
-            # Get auth URL from the error message
-            auth_url = str(e).split("Please visit the authorization URL: ")[-1]
-            if auth_url:
-                # Add state parameter with user_id
-                params = {
-                    'state': user_id
-                }
-                redirect_url = f"{auth_url}&{urlencode(params)}"
-                return RedirectResponse(url=redirect_url)
+        # Check if already authenticated
+        if bot.calendar_manager.ensure_authenticated(user_id):
+            return {"status": "success", "message": "Already authenticated"}
+            
+        # Start auth flow
+        auth_url = bot.calendar_manager.start_auth_flow(user_id)
         
+        # Add state parameter with user_id
+        params = {
+            'state': user_id
+        }
+        redirect_url = f"{auth_url}&{urlencode(params)}"
+        return RedirectResponse(url=redirect_url)
+        
+    except Exception as e:
         logger.error(f"Error starting auth: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
