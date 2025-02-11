@@ -294,13 +294,6 @@ class CalendarManager:
             logger.info(f"End time: {end_time.isoformat()}")
             logger.info(f"Timezone: {self.timezone.zone}")
             
-            # Initialize attendees list with service account
-            attendees = [{'email': self.service_account_email}]
-            
-            # Add attendee email if provided
-            if 'email' in attendee_data:
-                attendees.append({'email': attendee_data['email']})
-            
             event = {
                 'summary': title,
                 'description': description,
@@ -312,7 +305,6 @@ class CalendarManager:
                     'dateTime': end_time.isoformat(),
                     'timeZone': self.timezone.zone,
                 },
-                'attendees': attendees,
                 'reminders': {
                     'useDefault': False,
                     'overrides': [
@@ -331,7 +323,7 @@ class CalendarManager:
                 event = self.service.events().insert(
                     calendarId=calendar_id,
                     body=event,
-                    sendUpdates='all' if 'email' in attendee_data else 'none',
+                    sendUpdates='none',
                     supportsAttachments=True
                 ).execute()
                 
