@@ -181,6 +181,10 @@ class CalendarManager:
 
     def get_available_slots(self, settings: Dict, date: datetime) -> List[TimeSlot]:
         """Get available time slots for a specific date."""
+        if not settings:
+            logger.error("No calendar settings provided")
+            return []
+
         if not self.ensure_authenticated():
             raise Exception("Authentication required")
 
