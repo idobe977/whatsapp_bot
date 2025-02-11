@@ -19,6 +19,7 @@ import aiohttp
 import re
 import time
 import glob
+from calendar_manager import CalendarManager, TimeSlot
 
 # Configure logging with more detailed format
 logging.basicConfig(
@@ -44,7 +45,6 @@ required_env_vars = [
     "AIRTABLE_BASE_ID",
     "AIRTABLE_BUSINESS_SURVEY_TABLE_ID",
     "AIRTABLE_RESEARCH_SURVEY_TABLE_ID",
-    "AIRTABLE_SATISFACTION_SURVEY_TABLE_ID"
 ]
 
 missing_vars = [var for var in required_env_vars if not os.getenv(var)]
@@ -148,6 +148,7 @@ class WhatsAppSurveyBot:
         self.reflection_cache = {}
         self.airtable_cache = {}
         self.airtable_cache_timeout = 300
+        self.calendar_manager = CalendarManager()
         
         # Initialize emoji and special characters mapping
         self.emoji_mapping = {
@@ -415,8 +416,8 @@ class WhatsAppSurveyBot:
             state = self.survey_state[chat_id]
             state['last_activity'] = datetime.now()
             survey = state["survey"]
-            current_question_index = state["current_question"]
-            current_question = survey.questions[current_question_index]
+            current_question = survey.questions[state["current_question"]]
+            question_id = current_question["id"]
 
             # Do the transcription
             transcribed_text = await self.transcribe_voice(voice_url)
@@ -770,6 +771,27 @@ class WhatsAppSurveyBot:
         state = self.survey_state[chat_id]
         state['last_activity'] = datetime.now()
 
+        # Check if this is a meeting scheduler response
+        scheduler_state = state.get('meeting_scheduler')
+        if scheduler_state:
+            selected_options = []
+            if "votes" in poll_data:
+                for vote in poll_data["votes"]:
+                    if "optionVoters" in vote and chat_id in vote.get("optionVoters", []):
+                        selected_options.append(vote["optionName"])
+            
+            if selected_options:
+                selected_option = selected_options[0]
+                
+                # Check if this is date selection or time selection
+                if scheduler_state.get('selected_date') is None:
+                    # This is date selection
+                    await self.handle_meeting_date_selection(chat_id, selected_option)
+                else:
+                    # This is time selection
+                    await self.handle_meeting_time_selection(chat_id, selected_option)
+            return
+
         # Regular poll handling
         current_question = state["survey"].questions[state["current_question"]]
         question_id = current_question["id"]
@@ -897,8 +919,7 @@ class WhatsAppSurveyBot:
             
             # Clean the answer by removing emojis and special characters
             cleaned_answer = answer_content
-            # for emoji in ["⚡", "⏱️", "⏰", "😊", "🙈", "🎁", "🎉"]:
-            for emoji in ["⚡", "⏱️", "⏰",  "🙈", "🎁", "🎉"]:
+            for emoji in ["⚡", "⏱️", "⏰", "😊", "🙈", "🎁", "🎉"]:
                 cleaned_answer = cleaned_answer.replace(emoji, "")
             cleaned_answer = cleaned_answer.strip()
             
@@ -979,6 +1000,8 @@ class WhatsAppSurveyBot:
                 if "error" in response:
                     await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בשליחת השאלה. נא לנסות שוב.")
                     return
+            elif question["type"] == "meeting_scheduler":
+                await self.handle_meeting_scheduler(chat_id, {**question, "text": question_text})
             else:
                 response = await self.send_message_with_retry(chat_id, question_text)
                 if "error" in response:
@@ -1062,6 +1085,165 @@ class WhatsAppSurveyBot:
             state.pop("selected_options", None)
             state.pop("last_poll_response", None)
             await self.send_next_question(chat_id)
+
+    async def handle_meeting_scheduler(self, chat_id: str, question: Dict) -> None:
+        """Handle meeting scheduler question type."""
+        try:
+            state = self.survey_state[chat_id]
+            survey = state["survey"]
+            
+            # Get calendar settings
+            calendar_settings = survey.get('calendar_settings', {})
+            if not calendar_settings:
+                logger.error("No calendar settings found in survey configuration")
+                await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בתהליך קביעת הפגישה.")
+                return
+            
+            # Get available dates for next N days
+            days_to_show = calendar_settings.get('days_to_show', 14)
+            available_dates = []
+            current_date = datetime.now()
+            
+            for _ in range(days_to_show):
+                slots = self.calendar_manager.get_available_slots(calendar_settings, current_date)
+                if slots:
+                    available_dates.append(current_date.date())
+                current_date += timedelta(days=1)
+            
+            if not available_dates:
+                await self.send_message_with_retry(
+                    chat_id, 
+                    question.get('no_slots_message', "מצטערים, אין זמנים פנויים כרגע.")
+                )
+                return
+            
+            # Store available dates in state
+            state['meeting_scheduler'] = {
+                'available_dates': available_dates,
+                'calendar_settings': calendar_settings,
+                'question': question
+            }
+            
+            # Create date selection poll
+            date_options = [d.strftime("%d/%m/%Y") for d in available_dates]
+            await self.send_poll(chat_id, {
+                'text': "באיזה תאריך תרצה/י לקבוע את הפגישה? 📅",
+                'options': date_options,
+                'type': 'poll'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in handle_meeting_scheduler: {str(e)}")
+            await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בתהליך קביעת הפגישה.")
+
+    async def handle_meeting_date_selection(self, chat_id: str, selected_date_str: str) -> None:
+        """Handle meeting date selection."""
+        try:
+            state = self.survey_state[chat_id]
+            scheduler_state = state.get('meeting_scheduler')
+            
+            if not scheduler_state:
+                logger.error("No meeting scheduler state found")
+                return
+            
+            # Parse selected date
+            selected_date = datetime.strptime(selected_date_str, "%d/%m/%Y")
+            
+            # Get available slots for selected date
+            slots = self.calendar_manager.get_available_slots(
+                scheduler_state['calendar_settings'],
+                selected_date
+            )
+            
+            if not slots:
+                await self.send_message_with_retry(
+                    chat_id,
+                    "מצטערים, אין זמנים פנויים בתאריך שנבחר. אנא בחר תאריך אחר."
+                )
+                return
+            
+            # Store slots in state
+            scheduler_state['selected_date'] = selected_date
+            scheduler_state['available_slots'] = slots
+            
+            # Create time selection poll
+            time_options = [str(slot) for slot in slots]
+            await self.send_poll(chat_id, {
+                'text': f"באיזו שעה תרצה/י לקבוע את הפגישה ב-{selected_date_str}? ⏰",
+                'options': time_options,
+                'type': 'poll'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in handle_meeting_date_selection: {str(e)}")
+            await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בבחירת התאריך.")
+
+    async def handle_meeting_time_selection(self, chat_id: str, selected_time_str: str) -> None:
+        """Handle meeting time selection."""
+        try:
+            state = self.survey_state[chat_id]
+            scheduler_state = state.get('meeting_scheduler')
+            
+            if not scheduler_state:
+                logger.error("No meeting scheduler state found")
+                return
+            
+            # Find selected slot
+            selected_slot = None
+            for slot in scheduler_state['available_slots']:
+                if str(slot) == selected_time_str:
+                    selected_slot = slot
+                    break
+            
+            if not selected_slot:
+                await self.send_message_with_retry(
+                    chat_id,
+                    "מצטערים, הזמן שנבחר אינו זמין יותר. אנא בחר זמן אחר."
+                )
+                return
+            
+            # Get attendee data from previous answers
+            attendee_data = {
+                'שם מלא': state['answers'].get('שם מלא', ''),
+                'phone': chat_id.split('@')[0]  # Extract phone number from chat_id
+            }
+            
+            # Schedule the meeting
+            event_id = self.calendar_manager.schedule_meeting(
+                scheduler_state['calendar_settings'],
+                selected_slot,
+                attendee_data
+            )
+            
+            if event_id:
+                # Store event ID in state
+                scheduler_state['event_id'] = event_id
+                
+                # Send confirmation message
+                confirmation_message = scheduler_state['question'].get(
+                    'confirmation_message',
+                    "הפגישה נקבעה בהצלחה! 🎉\n{{meeting_time}}"
+                )
+                
+                confirmation_message = confirmation_message.replace(
+                    "{{meeting_time}}",
+                    f"{scheduler_state['selected_date'].strftime('%d/%m/%Y')} {selected_time_str}"
+                )
+                
+                await self.send_message_with_retry(chat_id, confirmation_message)
+                
+                # Move to next question
+                state["current_question"] += 1
+                await self.send_next_question(chat_id)
+            else:
+                await self.send_message_with_retry(
+                    chat_id,
+                    "מצטערים, הייתה שגיאה בקביעת הפגישה. אנא נסה שוב."
+                )
+            
+        except Exception as e:
+            logger.error(f"Error in handle_meeting_time_selection: {str(e)}")
+            await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בקביעת הפגישה.")
 
 # Initialize the bot
 logger.info("Initializing WhatsApp Survey Bot...")

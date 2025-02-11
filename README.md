@@ -10,26 +10,30 @@ A WhatsApp bot that conducts dynamic surveys and manages responses using Green A
 - Poll support with single and multiple choice options
 - Conditional flow logic based on user responses
 - Dynamic text replacement with Airtable field values
-- Automatic meeting scheduling
+- Automatic meeting scheduling with Google Calendar
 - Response storage in Airtable with caching
 - Automatic summary generation using Gemini AI
 - Empathetic and professional AI-powered reflections
 - Timeout handling for inactive sessions
 
-## Survey Features
+## Prerequisites
 
-- JSON-based survey definition
-- Support for text questions and polls
-- Dynamic question flow based on answers
-- Custom messages and reflections per question
-- Airtable field value interpolation using {{field_name}} syntax
-- Multiple answer types:
-  - Text input
-  - Voice messages with automatic transcription
-  - Single choice polls
-  - Multiple choice polls
-- Conditional logic flow with if/else_if conditions
-- Custom messages based on user responses
+1. Google Cloud Platform Account:
+   - Create a new project
+   - Enable Google Calendar API
+   - Configure OAuth2 consent screen
+   - Create OAuth2 credentials (Web application type)
+   - Add authorized redirect URIs:
+     - For local development: `http://localhost:8003/oauth2callback`
+     - For production: `https://your-app-name.onrender.com/oauth2callback`
+
+2. Green API Account:
+   - Register and get instance ID and API token
+   - Configure webhook URL in Green API dashboard
+
+3. Airtable Account:
+   - Create base and tables
+   - Get API key and base ID
 
 ## Setup
 
@@ -46,14 +50,23 @@ pip install -r requirements.txt
 
 3. Set up environment variables in `.env`:
 ```env
+# Green API Configuration
 ID_INSTANCE=your_green_api_instance_id
 API_TOKEN_INSTANCE=your_green_api_token
+
+# Gemini AI Configuration
 GEMINI_API_KEY=your_gemini_api_key
+
+# Airtable Configuration
 AIRTABLE_API_KEY=your_airtable_api_key
 AIRTABLE_BASE_ID=your_airtable_base_id
 AIRTABLE_BUSINESS_SURVEY_TABLE_ID=your_business_table_id
 AIRTABLE_RESEARCH_SURVEY_TABLE_ID=your_research_table_id
-AIRTABLE_SATISFACTION_SURVEY_TABLE_ID=your_satisfaction_table_id
+
+# Google OAuth2 Configuration
+GOOGLE_CLIENT_ID=your_client_id
+GOOGLE_CLIENT_SECRET=your_client_secret
+GOOGLE_REDIRECT_URI=https://your-app-name.onrender.com/oauth2callback
 ```
 
 4. Create your survey definitions in the `surveys` directory using JSON format:
@@ -64,6 +77,18 @@ AIRTABLE_SATISFACTION_SURVEY_TABLE_ID=your_satisfaction_table_id
   "airtable": {
     "base_id": "your_base_id",
     "table_id": "your_table_id"
+  },
+  "calendar_settings": {
+    "working_hours": {
+      "sunday": {"start": "09:00", "end": "17:00"}
+    },
+    "meeting_duration": 30,
+    "buffer_between_meetings": 15,
+    "days_to_show": 14,
+    "timezone": "Asia/Jerusalem",
+    "calendar_id": "primary",
+    "meeting_title_template": "Meeting with {{name}}",
+    "meeting_description_template": "Scheduled via WhatsApp\nPhone: {{phone}}"
   },
   "questions": [
     {
@@ -89,25 +114,29 @@ AIRTABLE_SATISFACTION_SURVEY_TABLE_ID=your_satisfaction_table_id
 }
 ```
 
-5. Run the server
-```bash
-uvicorn server:app --reload
-```
-
-## Deployment
-
-This project is configured for deployment on Render.com. To deploy:
+## Deployment to Render
 
 1. Push your code to GitHub
-2. Create a new Web Service on Render
-3. Connect your GitHub repository
-4. Add your environment variables in the Render dashboard
-5. Deploy!
+
+2. Create new Web Service on Render:
+   - Connect your GitHub repository
+   - Set build command: `pip install -r requirements.txt`
+   - Set start command: `python server.py`
+   - Add all environment variables
+   - Set Python version to 3.9 or higher
+
+3. Configure OAuth2:
+   - Add your Render app URL to authorized redirect URIs in Google Cloud Console
+   - Update GOOGLE_REDIRECT_URI in environment variables
+
+4. Initialize Calendar Authentication:
+   - Visit `/calendar/auth` endpoint after deployment
+   - Complete OAuth2 flow
+   - Verify credentials are stored in the credentials directory
 
 ## Environment Variables
 
-Make sure to set all required environment variables:
-
+Required environment variables:
 - `ID_INSTANCE`
 - `API_TOKEN_INSTANCE`
 - `GEMINI_API_KEY`
@@ -115,113 +144,30 @@ Make sure to set all required environment variables:
 - `AIRTABLE_BASE_ID`
 - `AIRTABLE_BUSINESS_SURVEY_TABLE_ID`
 - `AIRTABLE_RESEARCH_SURVEY_TABLE_ID`
-- `AIRTABLE_SATISFACTION_SURVEY_TABLE_ID`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_REDIRECT_URI`
 
-## תכונות עיקריות
+## Local Development
 
-- טעינה דינמית של שאלונים מקבצי JSON
-- תמיכה במספר סוגי שאלונים
-- תמלול אוטומטי של הקלטות קוליות באמצעות Gemini AI
-- תמיכה בסקרים עם בחירה יחידה או מרובה
-- לוגיקת זרימה מותנית בהתאם לתשובות המשתמש
-- החלפת טקסט דינמית עם ערכים מ-Airtable
-- קביעת פגישות אוטומטית
-- שמירת תשובות ב-Airtable עם מטמון
-- יצירת סיכום אוטומטי באמצעות Gemini AI
-- תגובות AI אמפתיות ומקצועיות
-- טיפול בפסקי זמן לשיחות לא פעילות
-
-## מבנה השאלון
-
-- הגדרת שאלון מבוססת JSON
-- תמיכה בשאלות טקסט וסקרים
-- זרימת שאלות דינמית בהתאם לתשובות
-- הודעות ותגובות מותאמות אישית לכל שאלה
-- שילוב ערכים מ-Airtable באמצעות תחביר {{שם_השדה}}
-- סוגי תשובות מרובים:
-  - קלט טקסט
-  - הודעות קוליות עם תמלול אוטומטי
-  - סקרים עם בחירה יחידה
-  - סקרים עם בחירה מרובה
-- זרימת לוגיקה מותנית עם תנאי if/else_if
-- הודעות מותאמות אישית בהתאם לתשובות המשתמש
-
-## התקנה
-
-1. שכפל את הריפוזיטורי:
-```bash
-git clone <repository-url>
-cd whatsapp-survey-bot
-```
-
-2. התקן את הדרישות:
-```bash
-pip install -r requirements.txt
-```
-
-3. צור קובץ `.env` עם המשתנים הבאים:
-```env
-ID_INSTANCE=your_green_api_instance_id
-API_TOKEN_INSTANCE=your_green_api_token
-GEMINI_API_KEY=your_gemini_api_key
-AIRTABLE_API_KEY=your_airtable_api_key
-AIRTABLE_BASE_ID=your_airtable_base_id
-AIRTABLE_TABLE_ID=your_airtable_table_id
-```
-
-4. צור את הגדרות השאלון בתיקיית `surveys` בפורמט JSON:
-```json
-{
-  "name": "שם השאלון",
-  "trigger_phrases": ["מילת_טריגר1", "מילת_טריגר2"],
-  "airtable": {
-    "base_id": "מזהה_בסיס",
-    "table_id": "מזהה_טבלה"
-  },
-  "questions": [
-    {
-      "id": "מזהה_שאלה",
-      "type": "text/poll",
-      "text": "טקסט השאלה {{שדה_אירטייבל}}",
-      "options": ["אפשרות1", "אפשרות2"],
-      "reflection": {
-        "type": "empathetic/professional",
-        "enabled": true
-      },
-      "flow": {
-        "if": {
-          "answer": "תשובה_ספציפית",
-          "then": {
-            "say": "הודעה מותאמת",
-            "goto": "מזהה_שאלה_הבאה"
-          }
-        }
-      }
-    }
-  ]
-}
-```
-
-## הרצה מקומית
-
-הרץ את השרת:
+1. Run the server:
 ```bash
 python server.py
 ```
 
-השרת יתחיל לרוץ על פורט 8000.
+2. Initialize calendar authentication:
+   - Visit `http://localhost:8003/calendar/auth`
+   - Complete OAuth2 flow
+   - Verify credentials in the credentials directory
 
-## נקודות קצה
+## Security Notes
 
-- `POST /webhook` - נקודת הקצה לקבלת עדכונים מ-Green API
-- `GET /health` - בדיקת תקינות השרת
+- All sensitive data is stored in environment variables
+- OAuth2 tokens are stored securely in local files
+- HTTPS is required in production
+- Access to endpoints should be restricted
+- Regular token rotation is recommended
 
-## הערות אבטחה
+## Support
 
-- וודא שכל המפתחות והטוקנים מאובטחים ולא נחשפים
-- השתמש ב-HTTPS בסביבת הייצור
-- הגבל גישה לנקודות הקצה רק למקורות מורשים
-
-## תמיכה
-
-לשאלות ותמיכה, צור קשר עם המפתח. 
+For questions and support, contact the developer. 

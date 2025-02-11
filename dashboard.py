@@ -35,8 +35,7 @@ AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
 SURVEY_TABLE_IDS = {
     "סקר עסקי": os.getenv("AIRTABLE_BUSINESS_SURVEY_TABLE_ID"),
-    "סקר מחקר": os.getenv("AIRTABLE_RESEARCH_SURVEY_TABLE_ID"),
-    "סקר שביעות רצון": os.getenv("AIRTABLE_SATISFACTION_SURVEY_TABLE_ID")
+    "סקר מחקר": os.getenv("AIRTABLE_RESEARCH_SURVEY_TABLE_ID")
 }
 
 # Validate environment variables
@@ -48,7 +47,6 @@ if not all([AIRTABLE_API_KEY, AIRTABLE_BASE_ID] + list(SURVEY_TABLE_IDS.values()
     AIRTABLE_BASE_ID=your_base_id
     AIRTABLE_BUSINESS_SURVEY_TABLE_ID=your_table_id
     AIRTABLE_RESEARCH_SURVEY_TABLE_ID=your_table_id
-    AIRTABLE_SATISFACTION_SURVEY_TABLE_ID=your_table_id
     """)
     st.stop()
 

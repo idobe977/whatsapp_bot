@@ -11,6 +11,22 @@
     "base_id": "appjvjnGLFopOf75b",
     "table_id": "tblho5wUHcU8bGJWU"
   },
+  "calendar_settings": {
+    "working_hours": {
+      "sunday": {"start": "09:00", "end": "17:00"},
+      "monday": {"start": "09:00", "end": "17:00"},
+      "tuesday": {"start": "09:00", "end": "17:00"},
+      "wednesday": {"start": "09:00", "end": "17:00"},
+      "thursday": {"start": "09:00", "end": "17:00"}
+    },
+    "meeting_duration": 30,
+    "buffer_between_meetings": 15,
+    "days_to_show": 14,
+    "timezone": "Asia/Jerusalem",
+    "calendar_id": "primary",
+    "meeting_title_template": "פגישת ייעוץ עם {{שם מלא}}",
+    "meeting_description_template": "נקבע דרך בוט WhatsApp\nטלפון: {{phone}}\nנושא: {{סיבת התנגדות}}"
+  },
   "messages": {
     "welcome": "*תודה שהקדשת מזמנך!* 🙏\nנשמח לשמוע את דעתך על השירות שלנו. 🎯\n*המשוב שלך חשוב לנו!* 🎁\n\n",
     "completion": {
@@ -112,11 +128,6 @@
       "reflection": {
         "type": "empathetic",
         "enabled": true
-      },
-      "flow": {
-        "then": {
-          "goto": "מידע נוסף"
-        }
       }
     },
     {
@@ -132,17 +143,23 @@
       "reflection": {
         "type": "empathetic",
         "enabled": true
-      },
-      "flow": {
-        "then": {
-          "goto": "מידע נוסף"
-        }
+      }
+    },
+    {
+      "id": "קביעת פגישת ייעוץ",
+      "type": "meeting_scheduler",
+      "text": "האם תרצה/י לקבוע פגישת ייעוץ אישית לדיון בפתרונות המתאימים לך? 📅",
+      "confirmation_message": "מעולה! קבענו פגישה ל-{{meeting_time}} 🎯\nאשלח לך תזכורת יום לפני הפגישה 📱",
+      "no_slots_message": "מצטערים, אין זמנים פנויים בשבועיים הקרובים. אנא נסה שוב מאוחר יותר או צור קשר ישירות.",
+      "reflection": {
+        "type": "empathetic",
+        "enabled": true
       }
     },
     {
       "id": "מידע נוסף",
       "type": "text",
-      "text": "7️⃣ יש משהו נוסף שתרצה/י לשתף על האתגרים או השאיפות שלך בעסק? 📝 💭",
+      "text": "יש משהו נוסף שתרצה/י לשתף על האתגרים או השאיפות שלך בעסק? 📝 💭",
       "reflection": {
         "type": "empathetic",
         "enabled": true
