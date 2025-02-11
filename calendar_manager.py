@@ -1,9 +1,7 @@
 import os
 import json
 import logging
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta
 import pytz
@@ -19,9 +17,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# If modifying these scopes, delete the stored credentials
 SCOPES = ['https://www.googleapis.com/auth/calendar']
-CREDENTIALS_DIR = 'credentials'
+SERVICE_ACCOUNT_FILE = 'credentials/service-account.json'
 
 @dataclass
 class TimeSlot:
@@ -34,112 +31,33 @@ class TimeSlot:
 class CalendarManager:
     def __init__(self):
         self.service = None
-        self.credentials = None
         self.timezone = pytz.timezone('Asia/Jerusalem')
         self.available_slots_cache = {}
         self.cache_expiry = 300  # 5 minutes
-        logger.info("Calendar Manager initialized without authentication")
+        self._initialize_service()
+        logger.info("Calendar Manager initialized")
 
-    def _get_credentials_path(self, user_id: str = 'default') -> str:
-        """Get the path for storing credentials."""
-        if not os.path.exists(CREDENTIALS_DIR):
-            os.makedirs(CREDENTIALS_DIR)
-        return os.path.join(CREDENTIALS_DIR, f'{user_id}_token.json')
-
-    def _get_credentials_from_file(self, user_id: str) -> Optional[Credentials]:
-        """Get credentials from file."""
+    def _initialize_service(self) -> None:
+        """Initialize the Google Calendar service using service account."""
         try:
-            creds_path = self._get_credentials_path(user_id)
-            if os.path.exists(creds_path):
-                with open(creds_path, 'r') as token:
-                    creds_dict = json.load(token)
-                    return Credentials.from_authorized_user_info(creds_dict)
-            return None
-        except Exception as e:
-            logger.error(f"Error getting credentials from file: {str(e)}")
-            return None
+            if not os.path.exists(SERVICE_ACCOUNT_FILE):
+                logger.error(f"Service account file not found at {SERVICE_ACCOUNT_FILE}")
+                return
 
-    def _save_credentials_to_file(self, user_id: str, credentials: Credentials) -> bool:
-        """Save credentials to file."""
-        try:
-            creds_path = self._get_credentials_path(user_id)
-            creds_dict = {
-                'token': credentials.token,
-                'refresh_token': credentials.refresh_token,
-                'token_uri': credentials.token_uri,
-                'client_id': credentials.client_id,
-                'client_secret': credentials.client_secret,
-                'scopes': credentials.scopes
-            }
-            with open(creds_path, 'w') as token:
-                json.dump(creds_dict, token)
-            return True
-        except Exception as e:
-            logger.error(f"Error saving credentials to file: {str(e)}")
-            return False
-
-    def ensure_authenticated(self, user_id: str = 'default') -> bool:
-        """Ensure the service is authenticated before use."""
-        try:
-            if self.service is not None:
-                return True
-
-            creds = self._get_credentials_from_file(user_id)
-                
-            if not creds or not creds.valid:
-                if creds and creds.expired and creds.refresh_token:
-                    creds.refresh(Request())
-                    self._save_credentials_to_file(user_id, creds)
-                else:
-                    return False
-
-            self.service = build('calendar', 'v3', credentials=creds)
-            logger.info("Successfully initialized Google Calendar service")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error ensuring authentication: {str(e)}")
-            return False
-
-    def start_auth_flow(self, user_id: str = 'default') -> str:
-        """Start the OAuth flow and return the authorization URL."""
-        try:
-            client_config = {
-                "web": {
-                    "client_id": os.getenv("GOOGLE_CLIENT_ID"),
-                    "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
-                    "redirect_uris": [os.getenv("GOOGLE_REDIRECT_URI")],
-                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                    "token_uri": "https://oauth2.googleapis.com/token"
-                }
-            }
-            
-            flow = InstalledAppFlow.from_client_config(
-                client_config,
-                SCOPES,
-                redirect_uri=os.getenv("GOOGLE_REDIRECT_URI")
+            credentials = service_account.Credentials.from_service_account_file(
+                SERVICE_ACCOUNT_FILE, 
+                scopes=SCOPES
             )
             
-            auth_url, state = flow.authorization_url(access_type='offline')
-            
-            # Store flow configuration in a temporary file
-            flow_config = {
-                'client_id': os.getenv("GOOGLE_CLIENT_ID"),
-                'client_secret': os.getenv("GOOGLE_CLIENT_SECRET"),
-                'redirect_uri': os.getenv("GOOGLE_REDIRECT_URI"),
-                'state': state,
-                'scope': SCOPES
-            }
-            
-            flow_path = os.path.join(CREDENTIALS_DIR, f'{user_id}_flow.json')
-            with open(flow_path, 'w') as f:
-                json.dump(flow_config, f)
-            
-            return auth_url
+            self.service = build('calendar', 'v3', credentials=credentials)
+            logger.info("Successfully initialized Google Calendar service with service account")
             
         except Exception as e:
-            logger.error(f"Error starting auth flow: {str(e)}")
-            raise
+            logger.error(f"Error initializing calendar service: {str(e)}")
+
+    def ensure_authenticated(self) -> bool:
+        """Check if service is initialized."""
+        return self.service is not None
 
     def get_working_hours(self, settings: Dict) -> Dict[str, Dict[str, str]]:
         """Get working hours from settings."""
@@ -186,7 +104,8 @@ class CalendarManager:
             return []
 
         if not self.ensure_authenticated():
-            raise Exception("Authentication required")
+            logger.error("Calendar service not initialized")
+            return []
 
         try:
             # Check cache first
@@ -246,6 +165,10 @@ class CalendarManager:
     def schedule_meeting(self, settings: Dict, slot: TimeSlot, attendee_data: Dict) -> Optional[str]:
         """Schedule a meeting in Google Calendar."""
         try:
+            if not self.ensure_authenticated():
+                logger.error("Calendar service not initialized")
+                return None
+
             calendar_id = settings.get('calendar_id', 'primary')
             
             # Format meeting title and description using templates
@@ -293,6 +216,10 @@ class CalendarManager:
     def cancel_meeting(self, event_id: str, calendar_id: str = 'primary') -> bool:
         """Cancel a scheduled meeting."""
         try:
+            if not self.ensure_authenticated():
+                logger.error("Calendar service not initialized")
+                return False
+
             self.service.events().delete(
                 calendarId=calendar_id,
                 eventId=event_id,
@@ -310,6 +237,10 @@ class CalendarManager:
                          calendar_id: str = 'primary') -> Optional[str]:
         """Reschedule an existing meeting to a new time slot."""
         try:
+            if not self.ensure_authenticated():
+                logger.error("Calendar service not initialized")
+                return None
+
             # Get existing event
             event = self.service.events().get(
                 calendarId=calendar_id,
