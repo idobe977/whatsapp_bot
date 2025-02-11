@@ -296,7 +296,6 @@ class WhatsAppSurveyBot:
             logger.info(f"Creating initial record for chat_id: {chat_id}, sender_name: {sender_name}, survey: {survey.name}")
             record = {
                 "מזהה צ'אט וואטסאפ": chat_id,
-                "תאריך מילוי": datetime.now().strftime("%Y-%m-%d"),
                 "שם מלא": sender_name,
                 "סטטוס": "חדש"
             }
