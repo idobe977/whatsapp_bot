@@ -356,34 +356,36 @@ class CalendarManager:
                 logger.info(f"Event link: {event.get('htmlLink')}")
                 
                 # Generate ICS file content
-                ics_content = f"""BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//WhatsApp Survey Bot//Calendar Manager//EN
-BEGIN:VEVENT
-DTSTART;TZID={self.timezone.zone}:{start_time.strftime('%Y%m%dT%H%M%S')}
-DTEND;TZID={self.timezone.zone}:{end_time.strftime('%Y%m%dT%H%M%S')}
-DTSTAMP:{datetime.now(self.timezone).strftime('%Y%m%dT%H%M%S')}
-UID:{event.get('id')}@whatsapp-survey-bot
-CREATED:{datetime.now(self.timezone).strftime('%Y%m%dT%H%M%S')}
-DESCRIPTION:{description.replace('\n', '\\n')}
-LAST-MODIFIED:{datetime.now(self.timezone).strftime('%Y%m%dT%H%M%S')}
-LOCATION:
-SEQUENCE:0
-STATUS:CONFIRMED
-SUMMARY:{title}
-TRANSP:OPAQUE
-BEGIN:VALARM
-TRIGGER:-P1D
-ACTION:DISPLAY
-DESCRIPTION:תזכורת לפגישה
-END:VALARM
-BEGIN:VALARM
-TRIGGER:-PT1H
-ACTION:DISPLAY
-DESCRIPTION:תזכורת לפגישה
-END:VALARM
-END:VEVENT
-END:VCALENDAR""".replace('\n', '\r\n')
+                ics_content = '\r\n'.join([
+                    "BEGIN:VCALENDAR",
+                    "VERSION:2.0",
+                    "PRODID:-//WhatsApp Survey Bot//Calendar Manager//EN",
+                    "BEGIN:VEVENT",
+                    f"DTSTART;TZID={self.timezone.zone}:{start_time.strftime('%Y%m%dT%H%M%S')}",
+                    f"DTEND;TZID={self.timezone.zone}:{end_time.strftime('%Y%m%dT%H%M%S')}",
+                    f"DTSTAMP:{datetime.now(self.timezone).strftime('%Y%m%dT%H%M%S')}",
+                    f"UID:{event.get('id')}@whatsapp-survey-bot",
+                    f"CREATED:{datetime.now(self.timezone).strftime('%Y%m%dT%H%M%S')}",
+                    f"DESCRIPTION:{description.replace('\n', '\\n')}",
+                    f"LAST-MODIFIED:{datetime.now(self.timezone).strftime('%Y%m%dT%H%M%S')}",
+                    "LOCATION:",
+                    "SEQUENCE:0",
+                    "STATUS:CONFIRMED",
+                    f"SUMMARY:{title}",
+                    "TRANSP:OPAQUE",
+                    "BEGIN:VALARM",
+                    "TRIGGER:-P1D",
+                    "ACTION:DISPLAY",
+                    "DESCRIPTION:תזכורת לפגישה",
+                    "END:VALARM",
+                    "BEGIN:VALARM",
+                    "TRIGGER:-PT1H",
+                    "ACTION:DISPLAY",
+                    "DESCRIPTION:תזכורת לפגישה",
+                    "END:VALARM",
+                    "END:VEVENT",
+                    "END:VCALENDAR"
+                ])
                 
                 # Create temporary file
                 temp_file = f"/tmp/meeting_{event.get('id')}.ics"
