@@ -21,11 +21,14 @@ A WhatsApp bot that conducts dynamic surveys and manages responses using Green A
 1. Google Cloud Platform Account:
    - Create a new project
    - Enable Google Calendar API
-   - Configure OAuth2 consent screen
-   - Create OAuth2 credentials (Web application type)
-   - Add authorized redirect URIs:
-     - For local development: `http://localhost:8003/oauth2callback`
-     - For production: `https://your-app-name.onrender.com/oauth2callback`
+   - Create a Service Account:
+     - Go to "IAM & Admin" > "Service Accounts"
+     - Click "Create Service Account"
+     - Name it (e.g. "whatsapp-bot-calendar")
+     - Create a JSON key and download it
+   - Place the JSON key file in `credentials/service-account.json`
+   - Share your Google Calendar with the service account email
+     (The email looks like: `bot-name@project-id.iam.gserviceaccount.com`)
 
 2. Green API Account:
    - Register and get instance ID and API token
@@ -62,11 +65,6 @@ AIRTABLE_API_KEY=your_airtable_api_key
 AIRTABLE_BASE_ID=your_airtable_base_id
 AIRTABLE_BUSINESS_SURVEY_TABLE_ID=your_business_table_id
 AIRTABLE_RESEARCH_SURVEY_TABLE_ID=your_research_table_id
-
-# Google OAuth2 Configuration
-GOOGLE_CLIENT_ID=your_client_id
-GOOGLE_CLIENT_SECRET=your_client_secret
-GOOGLE_REDIRECT_URI=https://your-app-name.onrender.com/oauth2callback
 ```
 
 4. Create your survey definitions in the `surveys` directory using JSON format:
@@ -125,14 +123,11 @@ GOOGLE_REDIRECT_URI=https://your-app-name.onrender.com/oauth2callback
    - Add all environment variables
    - Set Python version to 3.9 or higher
 
-3. Configure OAuth2:
-   - Add your Render app URL to authorized redirect URIs in Google Cloud Console
-   - Update GOOGLE_REDIRECT_URI in environment variables
-
-4. Initialize Calendar Authentication:
-   - Visit `/calendar/auth` endpoint after deployment
-   - Complete OAuth2 flow
-   - Verify credentials are stored in the credentials directory
+3. Create the credentials directory and upload service account JSON:
+   ```bash
+   mkdir -p credentials
+   # Copy your service-account.json to credentials/
+   ```
 
 ## Environment Variables
 
@@ -144,9 +139,6 @@ Required environment variables:
 - `AIRTABLE_BASE_ID`
 - `AIRTABLE_BUSINESS_SURVEY_TABLE_ID`
 - `AIRTABLE_RESEARCH_SURVEY_TABLE_ID`
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
-- `GOOGLE_REDIRECT_URI`
 
 ## Local Development
 
@@ -155,18 +147,12 @@ Required environment variables:
 python server.py
 ```
 
-2. Initialize calendar authentication:
-   - Visit `http://localhost:8003/calendar/auth`
-   - Complete OAuth2 flow
-   - Verify credentials in the credentials directory
-
 ## Security Notes
 
 - All sensitive data is stored in environment variables
-- OAuth2 tokens are stored securely in local files
+- Service account JSON key should be kept secure
 - HTTPS is required in production
 - Access to endpoints should be restricted
-- Regular token rotation is recommended
 
 ## Support
 
