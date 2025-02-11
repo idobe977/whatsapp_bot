@@ -48,10 +48,16 @@ class CalendarManager:
             
             # Initialize the Calendar API
             logger.info("Creating service account credentials")
-            credentials = service_account.Credentials.from_service_account_file(
-                self.SERVICE_ACCOUNT_FILE,
+            
+            # Read the service account file again after validation
+            with open(self.SERVICE_ACCOUNT_FILE, 'r') as f:
+                service_account_info = json.load(f)
+            
+            credentials = service_account.Credentials.from_service_account_info(
+                service_account_info,
                 scopes=['https://www.googleapis.com/auth/calendar']
             )
+            
             logger.info(f"Created credentials for subject: {credentials.service_account_email}")
             
             # Test credentials
@@ -130,29 +136,37 @@ class CalendarManager:
                 logger.error(f"Missing required fields: {', '.join(missing_fields)}")
                 raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
             
-            # Validate private key format
+            # Clean and validate private key format
             private_key = json_content['private_key']
+            
+            # Remove any extra whitespace and ensure proper line endings
+            private_key = private_key.strip()
+            
+            # Validate key markers
             if not private_key.startswith('-----BEGIN PRIVATE KEY-----'):
                 logger.error("Private key missing BEGIN marker")
                 raise ValueError("Invalid private key format - missing BEGIN marker")
-            if not private_key.strip().endswith('-----END PRIVATE KEY-----'):
+            if not private_key.endswith('-----END PRIVATE KEY-----'):
                 logger.error("Private key missing END marker")
                 raise ValueError("Invalid private key format - missing END marker")
             
-            # Clean private key format
-            private_key_lines = private_key.strip().split('\n')
-            if len(private_key_lines) < 3:
+            # Split the key into lines
+            key_lines = private_key.split('\n')
+            if len(key_lines) < 3:
                 logger.error("Private key too short")
                 raise ValueError("Invalid private key format - key too short")
             
-            # Reconstruct private key with proper line breaks
-            json_content['private_key'] = '\n'.join([
+            # Reconstruct the key with proper formatting
+            formatted_key = '\n'.join([
                 '-----BEGIN PRIVATE KEY-----',
-                *[line.strip() for line in private_key_lines[1:-1]],
+                *[line.strip() for line in key_lines[1:-1] if line.strip()],
                 '-----END PRIVATE KEY-----\n'
             ])
             
-            # Write back cleaned private key
+            # Update the private key in the JSON content
+            json_content['private_key'] = formatted_key
+            
+            # Write back the cleaned JSON
             with open(self.SERVICE_ACCOUNT_FILE, 'w') as f:
                 json.dump(json_content, f, indent=2)
                 logger.info("Wrote back cleaned service account file")
