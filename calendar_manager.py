@@ -267,8 +267,8 @@ class CalendarManager:
             logger.error(f"Error getting available slots: {str(e)}")
             return []
 
-    def schedule_meeting(self, settings: Dict, slot: TimeSlot, attendee_data: Dict) -> Optional[str]:
-        """Schedule a meeting in Google Calendar."""
+    def schedule_meeting(self, settings: Dict, slot: TimeSlot, attendee_data: Dict) -> Optional[Dict]:
+        """Schedule a meeting in Google Calendar and generate ICS file."""
         try:
             if not self.ensure_authenticated():
                 logger.error("Calendar service not initialized")
@@ -354,7 +354,48 @@ class CalendarManager:
                 
                 logger.info(f"Successfully scheduled meeting: {event.get('id')}")
                 logger.info(f"Event link: {event.get('htmlLink')}")
-                return event.get('id')
+                
+                # Generate ICS file content
+                ics_content = f"""BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//WhatsApp Survey Bot//Calendar Manager//EN
+BEGIN:VEVENT
+DTSTART;TZID={self.timezone.zone}:{start_time.strftime('%Y%m%dT%H%M%S')}
+DTEND;TZID={self.timezone.zone}:{end_time.strftime('%Y%m%dT%H%M%S')}
+DTSTAMP:{datetime.now(self.timezone).strftime('%Y%m%dT%H%M%S')}
+UID:{event.get('id')}@whatsapp-survey-bot
+CREATED:{datetime.now(self.timezone).strftime('%Y%m%dT%H%M%S')}
+DESCRIPTION:{description.replace('\n', '\\n')}
+LAST-MODIFIED:{datetime.now(self.timezone).strftime('%Y%m%dT%H%M%S')}
+LOCATION:
+SEQUENCE:0
+STATUS:CONFIRMED
+SUMMARY:{title}
+TRANSP:OPAQUE
+BEGIN:VALARM
+TRIGGER:-P1D
+ACTION:DISPLAY
+DESCRIPTION:תזכורת לפגישה
+END:VALARM
+BEGIN:VALARM
+TRIGGER:-PT1H
+ACTION:DISPLAY
+DESCRIPTION:תזכורת לפגישה
+END:VALARM
+END:VEVENT
+END:VCALENDAR""".replace('\n', '\r\n')
+                
+                # Create temporary file
+                temp_file = f"/tmp/meeting_{event.get('id')}.ics"
+                with open(temp_file, 'w', encoding='utf-8') as f:
+                    f.write(ics_content)
+                
+                return {
+                    'event_id': event.get('id'),
+                    'html_link': event.get('htmlLink'),
+                    'ics_file': temp_file
+                }
+                
             except Exception as api_error:
                 logger.error(f"Google Calendar API error: {str(api_error)}")
                 if hasattr(api_error, 'response') and api_error.response:
