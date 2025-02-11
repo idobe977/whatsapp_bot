@@ -18,30 +18,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 SCOPES = ['https://www.googleapis.com/auth/calendar']
-SERVICE_ACCOUNT_FILE = 'credentials/service-account.json'
-
-def _ensure_credentials_dir():
-    """Ensure credentials directory exists and create service account file from env if needed."""
-    if not os.path.exists('credentials'):
-        os.makedirs('credentials')
-        logger.info("Created credentials directory")
-    
-    # If service account file doesn't exist but we have env var, create it
-    if not os.path.exists(SERVICE_ACCOUNT_FILE) and os.getenv('GOOGLE_SERVICE_ACCOUNT'):
-        try:
-            service_account_json = os.getenv('GOOGLE_SERVICE_ACCOUNT')
-            # Validate JSON format
-            json.loads(service_account_json)  # This will raise JSONDecodeError if invalid
-            
-            with open(SERVICE_ACCOUNT_FILE, 'w') as f:
-                f.write(service_account_json)
-            logger.info("Created service account file from environment variable")
-        except json.JSONDecodeError:
-            logger.error("Invalid JSON in GOOGLE_SERVICE_ACCOUNT environment variable")
-            raise
-        except Exception as e:
-            logger.error(f"Error creating service account file: {str(e)}")
-            raise
 
 @dataclass
 class TimeSlot:
@@ -52,33 +28,57 @@ class TimeSlot:
         return f"{self.start_time.strftime('%H:%M')} - {self.end_time.strftime('%H:%M')}"
 
 class CalendarManager:
-    def __init__(self, service_account_file: str = 'credentials/service-account.json'):
-        """Initialize the calendar manager with service account credentials."""
+    def __init__(self):
+        """Initialize the calendar manager with service account credentials from environment."""
         logger.info("Initializing CalendarManager")
-        self.SERVICE_ACCOUNT_FILE = service_account_file
         self.service = None
         self.timezone = pytz.timezone('Asia/Jerusalem')
         self.available_slots_cache = {}
         self.cache_expiry = 300  # 5 minutes
         
         try:
-            # Ensure credentials directory and file exist
-            _ensure_credentials_dir()
+            # Get service account info from environment variable
+            service_account_json = os.getenv('GOOGLE_SERVICE_ACCOUNT')
+            if not service_account_json:
+                raise ValueError("GOOGLE_SERVICE_ACCOUNT environment variable not set")
             
-            # Validate service account file
-            self._validate_service_account_file()
+            try:
+                service_account_info = json.loads(service_account_json)
+                logger.info("Successfully parsed service account JSON from environment")
+            except json.JSONDecodeError:
+                logger.error("Invalid JSON in GOOGLE_SERVICE_ACCOUNT environment variable")
+                raise
             
-            # Get absolute path of service account file
-            abs_path = os.path.abspath(self.SERVICE_ACCOUNT_FILE)
-            logger.info(f"Using service account file at: {abs_path}")
+            # Validate required fields
+            required_fields = ['type', 'project_id', 'private_key_id', 'private_key', 
+                             'client_email', 'client_id']
             
-            # Initialize the Calendar API
+            missing_fields = [field for field in required_fields if field not in service_account_info]
+            if missing_fields:
+                raise ValueError(f"Missing required fields in service account: {', '.join(missing_fields)}")
+            
+            # Clean and validate private key format
+            private_key = service_account_info['private_key'].strip()
+            
+            # Validate key markers
+            if not private_key.startswith('-----BEGIN PRIVATE KEY-----'):
+                raise ValueError("Invalid private key format - missing BEGIN marker")
+            if not private_key.endswith('-----END PRIVATE KEY-----'):
+                raise ValueError("Invalid private key format - missing END marker")
+            
+            # Format private key
+            key_lines = private_key.split('\n')
+            if len(key_lines) < 3:
+                raise ValueError("Invalid private key format - key too short")
+            
+            service_account_info['private_key'] = '\n'.join([
+                '-----BEGIN PRIVATE KEY-----',
+                *[line.strip() for line in key_lines[1:-1] if line.strip()],
+                '-----END PRIVATE KEY-----\n'
+            ])
+            
+            # Create credentials
             logger.info("Creating service account credentials")
-            
-            # Read the service account file again after validation
-            with open(self.SERVICE_ACCOUNT_FILE, 'r') as f:
-                service_account_info = json.load(f)
-            
             credentials = service_account.Credentials.from_service_account_info(
                 service_account_info,
                 scopes=['https://www.googleapis.com/auth/calendar']
@@ -116,91 +116,8 @@ class CalendarManager:
             
             logger.info("Calendar service initialized successfully")
             
-        except FileNotFoundError:
-            logger.error(f"Service account file not found at: {self.SERVICE_ACCOUNT_FILE}")
-            raise
         except Exception as e:
             logger.error(f"Failed to initialize calendar service: {str(e)}")
-            raise
-
-    def _validate_service_account_file(self) -> None:
-        """Validate service account file format and JWT components."""
-        try:
-            logger.info("Starting service account file validation")
-            
-            # Check file exists and is readable
-            if not os.path.exists(self.SERVICE_ACCOUNT_FILE):
-                logger.error(f"Service account file does not exist at: {self.SERVICE_ACCOUNT_FILE}")
-                raise FileNotFoundError(f"Service account file not found at: {self.SERVICE_ACCOUNT_FILE}")
-                
-            # Read and parse JSON
-            with open(self.SERVICE_ACCOUNT_FILE, 'r') as f:
-                logger.info("Reading service account file")
-                try:
-                    json_content = json.load(f)
-                    logger.info(f"Successfully read JSON file, size: {len(str(json_content))} bytes")
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse JSON: {str(e)}")
-                    raise
-                
-            # Validate required fields
-            required_fields = ['type', 'project_id', 'private_key_id', 'private_key', 
-                             'client_email', 'client_id']
-            
-            missing_fields = []
-            for field in required_fields:
-                if field not in json_content:
-                    missing_fields.append(field)
-                else:
-                    # Log field presence (without sensitive data)
-                    if field in ['private_key', 'private_key_id']:
-                        logger.info(f"Found {field} (value hidden)")
-                    else:
-                        logger.info(f"Found {field}: {json_content[field]}")
-            
-            if missing_fields:
-                logger.error(f"Missing required fields: {', '.join(missing_fields)}")
-                raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
-            
-            # Clean and validate private key format
-            private_key = json_content['private_key']
-            
-            # Remove any extra whitespace and ensure proper line endings
-            private_key = private_key.strip()
-            
-            # Validate key markers
-            if not private_key.startswith('-----BEGIN PRIVATE KEY-----'):
-                logger.error("Private key missing BEGIN marker")
-                raise ValueError("Invalid private key format - missing BEGIN marker")
-            if not private_key.endswith('-----END PRIVATE KEY-----'):
-                logger.error("Private key missing END marker")
-                raise ValueError("Invalid private key format - missing END marker")
-            
-            # Split the key into lines
-            key_lines = private_key.split('\n')
-            if len(key_lines) < 3:
-                logger.error("Private key too short")
-                raise ValueError("Invalid private key format - key too short")
-            
-            # Reconstruct the key with proper formatting
-            formatted_key = '\n'.join([
-                '-----BEGIN PRIVATE KEY-----',
-                *[line.strip() for line in key_lines[1:-1] if line.strip()],
-                '-----END PRIVATE KEY-----\n'
-            ])
-            
-            # Update the private key in the JSON content
-            json_content['private_key'] = formatted_key
-            
-            # Write back the cleaned JSON
-            with open(self.SERVICE_ACCOUNT_FILE, 'w') as f:
-                json.dump(json_content, f, indent=2)
-                logger.info("Wrote back cleaned service account file")
-            
-            logger.info("Service account file validation completed successfully")
-            
-        except Exception as e:
-            logger.error(f"Service account validation failed: {str(e)}")
             raise
 
     def ensure_authenticated(self) -> bool:
