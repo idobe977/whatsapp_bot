@@ -1,6 +1,6 @@
 from typing import Dict
-from ..services.whatsapp_service import WhatsAppService
-from ..utils.logger import logger
+from project.services.whatsapp_service import WhatsAppService
+from project.utils.logger import logger
 
 async def handle_webhook_data(webhook_data: Dict, whatsapp: WhatsAppService) -> None:
     """Process incoming webhook data"""

@@ -1,8 +1,8 @@
 from typing import Dict, List, Optional
 from pyairtable import Api
-from ..utils.logger import logger
-from ..utils.cache import Cache
-from ..models.survey import SurveyDefinition
+from project.utils.logger import logger
+from project.utils.cache import Cache
+from project.models.survey import SurveyDefinition
 
 class AirtableService:
     def __init__(self, api_key: str, base_id: str):

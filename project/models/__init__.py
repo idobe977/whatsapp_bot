@@ -1,3 +1,3 @@
-from .survey import SurveyDefinition
+from project.models.survey import SurveyDefinition
 
 __all__ = ['SurveyDefinition'] 

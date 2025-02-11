@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import pytz
-from ..utils.logger import logger
+from project.utils.logger import logger
 
 class TimeSlot:
     def __init__(self, start_time: datetime, end_time: datetime):
