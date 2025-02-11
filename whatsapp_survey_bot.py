@@ -2,7 +2,7 @@ import google.generativeai as genai
 import requests
 import json
 import os
-from typing import Dict, Union, List, Optional
+from typing import Dict, Union, List, Optional, AsyncGenerator
 import base64
 from pyairtable import Api
 from dotenv import load_dotenv
@@ -11,14 +11,16 @@ from datetime import datetime, timedelta
 import traceback
 import tempfile
 from dataclasses import dataclass
-import threading
 import asyncio
 from fastapi import FastAPI
 import aiohttp
+from aiohttp import ClientTimeout, TCPConnector, ClientSession
 import re
 import time
 import glob
 from calendar_manager import CalendarManager, TimeSlot
+from contextlib import asynccontextmanager
+from functools import lru_cache
 
 # Configure logging with more detailed format
 logging.basicConfig(
@@ -64,6 +66,33 @@ logger.info("Configured Gemini API")
 # Airtable Configuration
 AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
+
+# Connection pool settings
+MAX_CONNECTIONS = 100
+KEEPALIVE_TIMEOUT = 75  # Recommended for production
+DNS_CACHE_TTL = 300  # 5 minutes
+CONNECTION_TIMEOUT = 10
+SOCKET_TIMEOUT = 5
+
+@asynccontextmanager
+async def get_session() -> AsyncGenerator[ClientSession, None]:
+    """Get aiohttp session with optimal settings using context manager."""
+    timeout = ClientTimeout(
+        total=CONNECTION_TIMEOUT,
+        connect=2,
+        sock_read=SOCKET_TIMEOUT
+    )
+    connector = TCPConnector(
+        limit=MAX_CONNECTIONS,
+        ttl_dns_cache=DNS_CACHE_TTL,
+        keepalive_timeout=KEEPALIVE_TIMEOUT
+    )
+    async with ClientSession(
+        timeout=timeout,
+        connector=connector,
+        headers={'Connection': 'keep-alive'}
+    ) as session:
+        yield session
 
 @dataclass
 class SurveyDefinition:
@@ -167,15 +196,20 @@ class WhatsAppSurveyBot:
         self.airtable = Api(AIRTABLE_API_KEY)
         logger.info("Initialized Airtable client")
         
-        # Initialize aiohttp session for reuse
-        self.session = None
-        
         # Load surveys dynamically
         self.survey_table_ids = {}
-        for survey in load_surveys_from_json():
-            self._validate_survey_definition(survey)
-            self.survey_table_ids[survey.name] = survey.airtable_table_id
-            logger.info(f"Loaded survey: {survey.name} with table ID: {survey.airtable_table_id}")
+        self._load_surveys()
+
+    def _load_surveys(self) -> None:
+        """Load surveys with error handling and caching."""
+        try:
+            for survey in load_surveys_from_json():
+                self._validate_survey_definition(survey)
+                self.survey_table_ids[survey.name] = survey.airtable_table_id
+                logger.info(f"Loaded survey: {survey.name}")
+        except Exception as e:
+            logger.error(f"Error loading surveys: {e}")
+            raise
 
     def _validate_survey_definition(self, survey: SurveyDefinition) -> None:
         """Validate survey definition has all required fields"""
@@ -214,62 +248,41 @@ class WhatsAppSurveyBot:
         # Create the cleanup task
         self.cleanup_task = asyncio.create_task(cleanup_loop())
 
-    async def get_aiohttp_session(self):
-        """Get or create aiohttp session with optimal settings"""
-        if self.session is None or self.session.closed:
-            timeout = aiohttp.ClientTimeout(
-                total=10,        # Total timeout
-                connect=2,       # Connection timeout
-                sock_read=5      # Socket read timeout
-            )
-            connector = aiohttp.TCPConnector(
-                limit=100,           # Max concurrent connections
-                ttl_dns_cache=300,   # DNS cache TTL (5 minutes)
-                force_close=False    # Keep-alive connections
-            )
-            self.session = aiohttp.ClientSession(
-                timeout=timeout,
-                connector=connector,
-                headers={'Connection': 'keep-alive'}
-            )
-        return self.session
-
     async def send_message_with_retry(self, chat_id: str, message: str) -> Dict:
-        """Send a message with retry mechanism using aiohttp"""
+        """Send a message with retry mechanism using connection pooling."""
         retries = 0
         last_error = None
-        session = await self.get_aiohttp_session()
         
         while retries < self.MAX_RETRIES:
             try:
-                url = f"{GREEN_API_BASE_URL}/sendMessage/{API_TOKEN_INSTANCE}"
-                payload = {
-                    "chatId": chat_id,
-                    "message": message
-                }
-                
-                async with session.post(url, json=payload) as response:
-                    if response.status == 200:
-                        response_data = await response.json()
-                        logger.info(f"Message sent successfully to {chat_id}")
-                        return response_data
+                async with get_session() as session:
+                    url = f"{GREEN_API_BASE_URL}/sendMessage/{API_TOKEN_INSTANCE}"
+                    payload = {
+                        "chatId": chat_id,
+                        "message": message
+                    }
                     
-                last_error = f"HTTP {response.status}"
-                retries += 1
-                if retries < self.MAX_RETRIES:
-                    await asyncio.sleep(self.RETRY_DELAY)
-                
+                    async with session.post(url, json=payload) as response:
+                        if response.status == 200:
+                            response_data = await response.json()
+                            logger.info(f"Message sent successfully to {chat_id}")
+                            return response_data
+                        
+                        last_error = f"HTTP {response.status}"
+                        
             except Exception as e:
                 last_error = str(e)
-                retries += 1
-                if retries < self.MAX_RETRIES:
-                    await asyncio.sleep(self.RETRY_DELAY)
-                
+            
+            retries += 1
+            if retries < self.MAX_RETRIES:
+                await asyncio.sleep(self.RETRY_DELAY * retries)  # Exponential backoff
+        
         logger.error(f"Failed to send message after {self.MAX_RETRIES} retries: {last_error}")
         return {"error": f"Failed after {self.MAX_RETRIES} retries: {last_error}"}
 
+    @lru_cache(maxsize=100)
     def get_survey_by_trigger(self, message: str) -> Optional[SurveyDefinition]:
-        """Find the appropriate survey based on trigger phrase"""
+        """Find the appropriate survey based on trigger phrase with caching."""
         message = message.lower()
         for survey in load_surveys_from_json():
             if any(trigger.lower() in message for trigger in survey.trigger_phrases):
@@ -321,16 +334,9 @@ class WhatsAppSurveyBot:
             return False
 
     async def send_poll(self, chat_id: str, question: Dict) -> Dict:
-        """Send a poll message to WhatsApp user"""
+        """Send a poll message using connection pooling."""
         try:
-            logger.info(f"Sending poll to {chat_id}")
-            logger.debug(f"Poll question: {question['text']}")
-            logger.debug(f"Poll options: {question['options']}")
-            
-            # Construct the full URL according to the API documentation
             url = f"https://api.greenapi.com/waInstance{ID_INSTANCE}/sendPoll/{API_TOKEN_INSTANCE}"
-            
-            # Format options according to API spec
             formatted_options = [{"optionName": opt} for opt in question["options"]]
             
             payload = {
@@ -340,70 +346,43 @@ class WhatsAppSurveyBot:
                 "multipleAnswers": question.get("multipleAnswers", False)
             }
             
-            headers = {
-                'Content-Type': 'application/json'
-            }
-            
-            logger.debug(f"Poll payload: {json.dumps(payload, ensure_ascii=False)}")
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, headers=headers) as response:
+            async with get_session() as session:
+                async with session.post(url, json=payload) as response:
                     response_text = await response.text()
-                    logger.debug(f"Raw response: {response_text}")
                     
                     if response.status != 200:
-                        logger.error(f"Poll request failed with status {response.status}")
-                        logger.error(f"Response content: {response_text}")
-                        return {"error": f"Request failed with status {response.status}"}
+                        logger.error(f"Poll request failed: {response.status}")
+                        return {"error": f"Request failed: {response.status}"}
                     
                     try:
-                        response_data = json.loads(response_text)
-                        logger.info(f"Poll sent successfully to {chat_id}")
-                        logger.debug(f"Green API response: {response_data}")
-                        return response_data
+                        return json.loads(response_text)
                     except json.JSONDecodeError as e:
-                        logger.error(f"Failed to parse response JSON: {str(e)}")
-                        logger.error(f"Raw response: {response_text}")
-                        return {"error": "Invalid JSON response from API"}
-            
-        except aiohttp.ClientError as e:
-            error_msg = f"Failed to send poll to {chat_id}: {str(e)}"
-            logger.error(error_msg)
-            return {"error": error_msg}
+                        logger.error(f"Invalid JSON response: {e}")
+                        return {"error": "Invalid JSON response"}
+                        
         except Exception as e:
-            error_msg = f"Unexpected error sending poll: {str(e)}"
-            logger.error(error_msg)
-            logger.error(f"Stack trace: {traceback.format_exc()}")
-            return {"error": error_msg}
+            logger.error(f"Error sending poll: {e}")
+            return {"error": str(e)}
 
     async def transcribe_voice(self, voice_url: str) -> str:
-        """Transcribe voice message using Gemini"""
+        """Transcribe voice message using connection pooling."""
         try:
-            logger.info(f"Starting voice transcription from URL: {voice_url}")
-            
-            response = requests.get(voice_url)
-            response.raise_for_status()
-            logger.info("Voice file downloaded successfully")
-            
-            logger.debug(f"File size: {len(response.content)} bytes")
-            logger.debug("Sending to Gemini for transcription")
-            
-            gemini_response = model.generate_content([
-                "Please transcribe this audio file and respond in Hebrew:",
-                {"mime_type": "audio/ogg", "data": response.content}
-            ])
-            
-            transcribed_text = gemini_response.text
-            logger.info("Voice transcription completed successfully")
-            logger.debug(f"Transcribed text: {transcribed_text[:100]}...")  # Log first 100 chars
-            
-            return transcribed_text
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error downloading voice file: {str(e)}")
-            return "שגיאה בהורדת הקובץ הקולי"
+            async with get_session() as session:
+                async with session.get(voice_url) as response:
+                    if response.status != 200:
+                        return "שגיאה בהורדת הקובץ הקולי"
+                    
+                    content = await response.read()
+                    
+                    gemini_response = model.generate_content([
+                        "Please transcribe this audio file and respond in Hebrew:",
+                        {"mime_type": "audio/ogg", "data": content}
+                    ])
+                    
+                    return gemini_response.text
+                    
         except Exception as e:
-            logger.error(f"Error in voice transcription: {str(e)}")
-            logger.error(f"Stack trace: {traceback.format_exc()}")
+            logger.error(f"Error in voice transcription: {e}")
             return "שגיאה בתהליך התמלול"
 
     async def handle_voice_message(self, chat_id: str, voice_url: str) -> None:
@@ -1012,8 +991,6 @@ class WhatsAppSurveyBot:
     async def cleanup(self):
         """Cleanup resources"""
         try:
-            if self.session and not self.session.closed:
-                await self.session.close()
             if self.cleanup_task:
                 self.cleanup_task.cancel()
                 try:
@@ -1048,7 +1025,7 @@ class WhatsAppSurveyBot:
             del self.airtable_cache[k]
 
     async def update_airtable_record(self, record_id: str, data: Dict, survey: SurveyDefinition) -> bool:
-        """Update Airtable record asynchronously"""
+        """Update Airtable record asynchronously with batching support."""
         try:
             # Get cached record if available
             cached_record = self.get_cached_airtable_record(record_id, survey.airtable_table_id)
@@ -1057,18 +1034,114 @@ class WhatsAppSurveyBot:
                 cached_record.update(data)
                 self.cache_airtable_record(record_id, survey.airtable_table_id, cached_record)
             
-            # Update Airtable
-            table = self.airtable.table(AIRTABLE_BASE_ID, survey.airtable_table_id)
-            table.update(record_id, data)
+            # Add to batch queue
+            if not hasattr(self, '_airtable_batch_queue'):
+                self._airtable_batch_queue = []
             
-            # Update cache with new data
-            if not cached_record:
-                self.cache_airtable_record(record_id, survey.airtable_table_id, data)
+            self._airtable_batch_queue.append({
+                'table_id': survey.airtable_table_id,
+                'record_id': record_id,
+                'data': data
+            })
+            
+            # Process batch if queue is full or immediate update is needed
+            if len(self._airtable_batch_queue) >= 10:  # Process in batches of 10
+                await self._process_airtable_batch()
             
             return True
+            
         except Exception as e:
             logger.error(f"Error updating Airtable record: {e}")
             return False
+
+    async def _process_airtable_batch(self) -> None:
+        """Process batched Airtable updates."""
+        if not self._airtable_batch_queue:
+            return
+            
+        try:
+            # Group updates by table
+            updates_by_table = {}
+            for update in self._airtable_batch_queue:
+                table_id = update['table_id']
+                if table_id not in updates_by_table:
+                    updates_by_table[table_id] = []
+                updates_by_table[table_id].append({
+                    'id': update['record_id'],
+                    'fields': update['data']
+                })
+            
+            # Process each table's updates
+            for table_id, records in updates_by_table.items():
+                table = self.airtable.table(AIRTABLE_BASE_ID, table_id)
+                table.batch_update(records)
+            
+            # Clear the queue
+            self._airtable_batch_queue.clear()
+            
+        except Exception as e:
+            logger.error(f"Error processing Airtable batch: {e}")
+
+    async def send_messages_batch(self, messages: List[Dict]) -> List[Dict]:
+        """Send multiple messages in batch using connection pooling."""
+        async def send_single(msg: Dict) -> Dict:
+            return await self.send_message_with_retry(msg['chat_id'], msg['text'])
+        
+        # Process messages concurrently with rate limiting
+        tasks = []
+        for i, msg in enumerate(messages):
+            if i > 0 and i % 5 == 0:  # Rate limit: 5 messages at a time
+                await asyncio.sleep(1)
+            tasks.append(asyncio.create_task(send_single(msg)))
+        
+        return await asyncio.gather(*tasks)
+
+    async def process_survey_answers_batch(self, answers: List[Dict]) -> None:
+        """Process multiple survey answers in batch."""
+        tasks = []
+        for answer in answers:
+            tasks.append(
+                self.process_survey_answer(
+                    answer['chat_id'],
+                    answer['answer']
+                )
+            )
+        await asyncio.gather(*tasks)
+
+    @asynccontextmanager
+    async def api_session(self) -> AsyncGenerator[ClientSession, None]:
+        """Get a session with automatic retry and error handling."""
+        try:
+            async with get_session() as session:
+                yield session
+        except aiohttp.ClientError as e:
+            logger.error(f"API session error: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected session error: {e}")
+            raise
+
+    async def api_request(self, method: str, url: str, **kwargs) -> Dict:
+        """Make an API request with automatic retry and error handling."""
+        retries = 0
+        while retries < self.MAX_RETRIES:
+            try:
+                async with self.api_session() as session:
+                    async with getattr(session, method.lower())(url, **kwargs) as response:
+                        if response.status == 200:
+                            return await response.json()
+                        elif response.status == 429:  # Rate limit
+                            retry_after = int(response.headers.get('Retry-After', self.RETRY_DELAY))
+                            await asyncio.sleep(retry_after)
+                        else:
+                            response.raise_for_status()
+            except Exception as e:
+                logger.error(f"API request error: {e}")
+                if retries == self.MAX_RETRIES - 1:
+                    raise
+                retries += 1
+                await asyncio.sleep(self.RETRY_DELAY * retries)
+        return {"error": "Max retries exceeded"}
 
     async def schedule_next_question(self, chat_id: str, delay_seconds: int) -> None:
         """Schedule moving to the next question after a delay"""
