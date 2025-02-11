@@ -356,6 +356,7 @@ class CalendarManager:
                 logger.info(f"Event link: {event.get('htmlLink')}")
                 
                 # Generate ICS file content
+                description_escaped = description.replace('\n', '\\n')
                 ics_content = '\r\n'.join([
                     "BEGIN:VCALENDAR",
                     "VERSION:2.0",
@@ -366,7 +367,7 @@ class CalendarManager:
                     f"DTSTAMP:{datetime.now(self.timezone).strftime('%Y%m%dT%H%M%S')}",
                     f"UID:{event.get('id')}@whatsapp-survey-bot",
                     f"CREATED:{datetime.now(self.timezone).strftime('%Y%m%dT%H%M%S')}",
-                    f"DESCRIPTION:{description.replace('\n', '\\n')}",
+                    f"DESCRIPTION:{description_escaped}",
                     f"LAST-MODIFIED:{datetime.now(self.timezone).strftime('%Y%m%dT%H%M%S')}",
                     "LOCATION:",
                     "SEQUENCE:0",
