@@ -1,9 +1,15 @@
+# Credentials and secrets
+credentials/
+*.json
+!surveys/*.json
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+env/
 build/
 develop-eggs/
 dist/
@@ -15,16 +21,15 @@ lib64/
 parts/
 sdist/
 var/
-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 
 # Virtual Environment
 venv/
-ENV/
-env/
 .env
+.venv
+ENV/
 
 # IDE
 .idea/
@@ -38,12 +43,4 @@ whatsapp_bot.log
 
 # OS
 .DS_Store
-Thumbs.db
-
-# Google Calendar credentials
-credentials.json
-token.pickle
-*.pickle
-
-# Local development files
-local_settings.py 
+Thumbs.db 
