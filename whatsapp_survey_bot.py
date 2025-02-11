@@ -9,7 +9,6 @@ from dotenv import load_dotenv
 import logging
 from datetime import datetime, timedelta
 import traceback
-from mutagen.oggopus import OggOpus
 import tempfile
 from dataclasses import dataclass
 import threading
