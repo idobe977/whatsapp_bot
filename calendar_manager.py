@@ -40,20 +40,30 @@ class CalendarManager:
     def _initialize_service(self) -> None:
         """Initialize the Google Calendar service using service account."""
         try:
+            logger.info(f"Attempting to initialize calendar service from: {os.path.abspath(SERVICE_ACCOUNT_FILE)}")
+            
             if not os.path.exists(SERVICE_ACCOUNT_FILE):
-                logger.error(f"Service account file not found at {SERVICE_ACCOUNT_FILE}")
+                logger.error(f"Service account file not found at {os.path.abspath(SERVICE_ACCOUNT_FILE)}")
                 return
+
+            with open(SERVICE_ACCOUNT_FILE, 'r') as f:
+                file_content = f.read()
+                logger.info(f"Successfully read service account file, length: {len(file_content)} bytes")
 
             credentials = service_account.Credentials.from_service_account_file(
                 SERVICE_ACCOUNT_FILE, 
                 scopes=SCOPES
             )
+            logger.info("Successfully created credentials from service account")
             
             self.service = build('calendar', 'v3', credentials=credentials)
             logger.info("Successfully initialized Google Calendar service with service account")
             
         except Exception as e:
             logger.error(f"Error initializing calendar service: {str(e)}")
+            logger.error(f"Error type: {type(e).__name__}")
+            if hasattr(e, 'response'):
+                logger.error(f"Response content: {e.response.text}")
 
     def ensure_authenticated(self) -> bool:
         """Check if service is initialized."""
