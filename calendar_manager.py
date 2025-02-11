@@ -409,65 +409,6 @@ class CalendarManager:
             logger.error(f"Error scheduling meeting: {str(e)}")
             return None
 
-    def cancel_meeting(self, event_id: str, calendar_id: str = 'primary') -> bool:
-        """Cancel a scheduled meeting."""
-        try:
-            if not self.ensure_authenticated():
-                logger.error("Calendar service not initialized")
-                return False
-
-            self.service.events().delete(
-                calendarId=calendar_id,
-                eventId=event_id,
-                sendUpdates='all'
-            ).execute()
-            
-            logger.info(f"Successfully cancelled meeting: {event_id}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error cancelling meeting: {str(e)}")
-            return False
-
-    def reschedule_meeting(self, event_id: str, new_slot: TimeSlot, 
-                         calendar_id: str = 'primary') -> Optional[str]:
-        """Reschedule an existing meeting to a new time slot."""
-        try:
-            if not self.ensure_authenticated():
-                logger.error("Calendar service not initialized")
-                return None
-
-            # Get existing event
-            event = self.service.events().get(
-                calendarId=calendar_id,
-                eventId=event_id
-            ).execute()
-            
-            # Update time
-            event['start'] = {
-                'dateTime': new_slot.start_time.isoformat(),
-                'timeZone': self.timezone.zone
-            }
-            event['end'] = {
-                'dateTime': new_slot.end_time.isoformat(),
-                'timeZone': self.timezone.zone
-            }
-            
-            # Update event
-            updated_event = self.service.events().update(
-                calendarId=calendar_id,
-                eventId=event_id,
-                body=event,
-                sendUpdates='all'
-            ).execute()
-            
-            logger.info(f"Successfully rescheduled meeting: {event_id}")
-            return updated_event.get('id')
-            
-        except Exception as e:
-            logger.error(f"Error rescheduling meeting: {str(e)}")
-            return None
-
     def clear_cache(self) -> None:
         """Clear the available slots cache."""
         self.available_slots_cache = {}
