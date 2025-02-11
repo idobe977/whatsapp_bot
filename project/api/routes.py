@@ -2,11 +2,9 @@ from fastapi import FastAPI, Request
 import traceback
 from project.services.whatsapp_service import WhatsAppService
 from project.utils.logger import logger
-from .dashboard import router as dashboard_router
 import os
 
 app = FastAPI()
-app.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
 
 whatsapp = WhatsAppService(
     instance_id=os.getenv("ID_INSTANCE"),
