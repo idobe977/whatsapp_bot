@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 import traceback
-from ..services.whatsapp_service import WhatsAppService
-from ..utils.logger import logger
+from project.services.whatsapp_service import WhatsAppService
+from project.utils.logger import logger
 from .dashboard import router as dashboard_router
 import os
 
@@ -28,6 +28,12 @@ async def webhook(request: Request):
         message_data = webhook_data["messageData"]
         sender_data = webhook_data["senderData"]
         chat_id = sender_data["chatId"]
+        
+        # Ignore group chats
+        if not chat_id.endswith("@c.us"):
+            logger.info(f"Ignoring group chat message from {chat_id}")
+            return {"status": "ok"}
+            
         sender_name = sender_data.get("senderName", "")
         
         logger.info(f"Processing message from {chat_id} ({sender_name})")
