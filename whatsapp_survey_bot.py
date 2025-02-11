@@ -42,9 +42,7 @@ required_env_vars = [
     "API_TOKEN_INSTANCE",
     "GEMINI_API_KEY",
     "AIRTABLE_API_KEY",
-    "AIRTABLE_BASE_ID",
-    "AIRTABLE_BUSINESS_SURVEY_TABLE_ID",
-    "AIRTABLE_RESEARCH_SURVEY_TABLE_ID",
+    "AIRTABLE_BASE_ID"
 ]
 
 missing_vars = [var for var in required_env_vars if not os.getenv(var)]
@@ -1242,15 +1240,15 @@ class WhatsAppSurveyBot:
             }
             
             # Schedule the meeting
-            event_id = self.calendar_manager.schedule_meeting(
+            result = self.calendar_manager.schedule_meeting(
                 scheduler_state['calendar_settings'],
                 selected_slot,
                 attendee_data
             )
             
-            if event_id:
+            if result:
                 # Store event ID in state
-                scheduler_state['event_id'] = event_id
+                scheduler_state['event_id'] = result['event_id']
                 
                 # Send confirmation message
                 confirmation_message = scheduler_state['question'].get(
@@ -1265,6 +1263,43 @@ class WhatsAppSurveyBot:
                 
                 await self.send_message_with_retry(chat_id, confirmation_message)
                 
+                # Send ICS file
+                try:
+                    url = f"https://api.greenapi.com/waInstance{ID_INSTANCE}/sendFileByUpload/{API_TOKEN_INSTANCE}"
+                    
+                    # Create aiohttp FormData
+                    form = aiohttp.FormData()
+                    form.add_field('chatId', chat_id)
+                    form.add_field('caption', "לחץ על הקובץ כדי להוסיף את הפגישה ליומן שלך 📅")
+                    
+                    # Add file with proper content type
+                    with open(result['ics_file'], 'rb') as f:
+                        form.add_field('file', f, 
+                            filename='meeting.ics',
+                            content_type='text/calendar')
+                    
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(url, data=form) as response:
+                            if response.status != 200:
+                                logger.error(f"Failed to send ICS file: {await response.text()}")
+                    
+                    # Clean up temporary file
+                    os.remove(result['ics_file'])
+                    
+                except Exception as e:
+                    logger.error(f"Error sending ICS file: {str(e)}")
+                    logger.error(f"Stack trace: {traceback.format_exc()}")
+                
+                # Add option to cancel/reschedule
+                options_message = (
+                    "*אפשרויות נוספות:*\n"
+                    "- לביטול הפגישה, שלח 'ביטול פגישה'\n"
+                    "- לשינוי מועד, שלח 'שינוי מועד'\n"
+                    "- להוספת הערות, שלח 'הוספת הערות'"
+                )
+                await asyncio.sleep(1)
+                await self.send_message_with_retry(chat_id, options_message)
+                
                 # Move to next question
                 state["current_question"] += 1
                 await self.send_next_question(chat_id)
@@ -1276,6 +1311,7 @@ class WhatsAppSurveyBot:
             
         except Exception as e:
             logger.error(f"Error in handle_meeting_time_selection: {str(e)}")
+            logger.error(f"Stack trace: {traceback.format_exc()}")
             await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בקביעת הפגישה.")
 
 # Initialize the bot
