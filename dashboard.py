@@ -138,7 +138,7 @@ if page == "סקירה כללית":
                 
                 # Count today's responses
                 today = datetime.now().date()
-                today_records = [r for r in records if r['fields'].get('תאריך מילוי', '').startswith(str(today))]
+                today_records = [r for r in records if r['fields'].get('תאריך יצירה', '').startswith(str(today))]
                 responses_today += len(today_records)
                 
                 # Calculate completion rate
@@ -170,7 +170,7 @@ if page == "סקירה כללית":
         st.subheader("📊 מגמת תגובות")
         if all_records:
             df = pd.DataFrame([{
-                'תאריך': r['fields'].get('תאריך מילוי', ''),
+                'תאריך': r['fields'].get('תאריך יצירה', ''),
                 'סוג סקר': r['fields'].get('סוג שאלון', ''),
                 'סטטוס': r['fields'].get('סטטוס', '')
             } for r in all_records])
@@ -207,7 +207,7 @@ if page == "סקירה כללית":
                 for record in records:
                     recent_records.append({
                         'סוג סקר': survey_name,
-                        'תאריך': record['fields'].get('תאריך מילוי', ''),
+                        'תאריך': record['fields'].get('תאריך יצירה', ''),
                         'שם': record['fields'].get('שם מלא', ''),
                         'סטטוס': record['fields'].get('סטטוס', ''),
                         'מעוניין בפגישה': record['fields'].get('מעוניין לקבוע פגישה', 'לא צוין')
@@ -270,10 +270,10 @@ elif page == "תגובות סקר":
             if status_filter:
                 df = df[df['סטטוס'].isin(status_filter)]
             if len(date_range) == 2:
-                df['תאריך מילוי'] = pd.to_datetime(df['תאריך מילוי'])
+                df['תאריך יצירה'] = pd.to_datetime(df['תאריך יצירה'])
                 df = df[
-                    (df['תאריך מילוי'].dt.date >= date_range[0]) &
-                    (df['תאריך מילוי'].dt.date <= date_range[1])
+                    (df['תאריך יצירה'].dt.date >= date_range[0]) &
+                    (df['תאריך יצירה'].dt.date <= date_range[1])
                 ]
             if search_term:
                 df = df[df['שם מלא'].str.contains(search_term, case=False, na=False)]
@@ -378,8 +378,8 @@ elif page == "אנליטיקה":
             
             # Response Time Analysis
             st.subheader("ניתוח זמני תגובה")
-            df['תאריך מילוי'] = pd.to_datetime(df['תאריך מילוי'])
-            df['שעה'] = df['תאריך מילוי'].dt.hour
+            df['תאריך יצירה'] = pd.to_datetime(df['תאריך יצירה'])
+            df['שעה'] = df['תאריך יצירה'].dt.hour
             hourly_responses = df['שעה'].value_counts().sort_index()
             fig = px.line(x=hourly_responses.index,
                          y=hourly_responses.values,
