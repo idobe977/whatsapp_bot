@@ -32,7 +32,15 @@ class CalendarManager:
         """Initialize the calendar manager with service account credentials from environment."""
         logger.info("Initializing CalendarManager")
         self.service = None
-        self.timezone = pytz.timezone('Asia/Jerusalem')
+        
+        # Validate timezone
+        try:
+            self.timezone = pytz.timezone('Asia/Jerusalem')
+        except pytz.exceptions.UnknownTimeZoneError:
+            logger.error("Invalid timezone: Asia/Jerusalem")
+            self.timezone = pytz.UTC
+            logger.info("Defaulting to UTC timezone")
+            
         self.available_slots_cache = {}
         self.cache_expiry = 300  # 5 minutes
         
@@ -272,7 +280,19 @@ class CalendarManager:
                 logger.error("No calendar_id provided in settings")
                 return None
                 
+            # Validate calendar_id format
+            if not '@' in calendar_id or not '.' in calendar_id:
+                logger.error(f"Invalid calendar_id format: {calendar_id}")
+                return None
+                
             logger.info(f"Scheduling meeting in calendar: {calendar_id}")
+            
+            # Verify the calendar exists and is accessible
+            try:
+                self.service.calendars().get(calendarId=calendar_id).execute()
+            except Exception as e:
+                logger.error(f"Calendar {calendar_id} not found or not accessible: {str(e)}")
+                return None
             
             # Format meeting title and description using templates
             title_template = settings.get('meeting_title_template', 'פגישה עם {{שם מלא}}')
