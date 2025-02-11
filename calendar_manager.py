@@ -266,7 +266,12 @@ class CalendarManager:
                 logger.error("Calendar service not initialized")
                 return None
 
-            calendar_id = settings.get('calendar_id', 'primary')
+            # Get calendar ID from settings - this should be the email address of the calendar owner
+            calendar_id = settings.get('calendar_id')
+            if not calendar_id:
+                logger.error("No calendar_id provided in settings")
+                return None
+                
             logger.info(f"Scheduling meeting in calendar: {calendar_id}")
             
             # Format meeting title and description using templates
@@ -312,7 +317,7 @@ class CalendarManager:
                         {'method': 'popup', 'minutes': 60},  # 1 hour before
                     ]
                 },
-                'visibility': 'private',  # Make event private
+                'visibility': 'default',  # Use calendar's default visibility
                 'transparency': 'opaque',  # Show as busy
                 'guestsCanModify': False,  # Prevent guests from modifying
                 'guestsCanInviteOthers': False,  # Prevent guests from inviting others
