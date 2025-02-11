@@ -867,6 +867,28 @@ class WhatsAppSurveyBot:
             logger.error(f"Error handling text message: {str(e)}")
             await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד ההודעה. נא לנסות שוב.")
 
+    async def get_airtable_field_value(self, record_id: str, field_name: str, survey: SurveyDefinition) -> Optional[str]:
+        """Get field value from Airtable record"""
+        try:
+            # Check cache first
+            cached_record = self.get_cached_airtable_record(record_id, survey.airtable_table_id)
+            if cached_record and field_name in cached_record:
+                return cached_record[field_name]
+            
+            # If not in cache, fetch from Airtable
+            table = self.airtable.table(AIRTABLE_BASE_ID, survey.airtable_table_id)
+            record = table.get(record_id)
+            
+            if record and "fields" in record:
+                # Cache the record
+                self.cache_airtable_record(record_id, survey.airtable_table_id, record["fields"])
+                return record["fields"].get(field_name)
+                
+            return None
+        except Exception as e:
+            logger.error(f"Error getting Airtable field value: {e}")
+            return None
+
     async def process_poll_answer(self, chat_id: str, answer_content: str, question_id: str) -> None:
         """Process poll answer and update Airtable"""
         try:
@@ -892,13 +914,31 @@ class WhatsAppSurveyBot:
                 flow = current_question["flow"]
                 if "if" in flow and flow["if"]["answer"] == answer_content:
                     if "say" in flow["if"]["then"]:
-                        await self.send_message_with_retry(chat_id, flow["if"]["then"]["say"])
+                        message = flow["if"]["then"]["say"]
+                        # Replace Airtable field placeholders
+                        if "{{" in message and "}}" in message:
+                            placeholders = re.findall(r'\{\{(.*?)\}\}', message)
+                            for field_name in placeholders:
+                                field_value = await self.get_airtable_field_value(state["record_id"], field_name, survey)
+                                if field_value:
+                                    message = message.replace(f"{{{{{field_name}}}}}", str(field_value))
+                        
+                        await self.send_message_with_retry(chat_id, message)
                         await asyncio.sleep(1.5)
                 elif "else_if" in flow:
                     for else_if in flow["else_if"]:
                         if else_if["answer"] == answer_content:
                             if "say" in else_if["then"]:
-                                await self.send_message_with_retry(chat_id, else_if["then"]["say"])
+                                message = else_if["then"]["say"]
+                                # Replace Airtable field placeholders
+                                if "{{" in message and "}}" in message:
+                                    placeholders = re.findall(r'\{\{(.*?)\}\}', message)
+                                    for field_name in placeholders:
+                                        field_value = await self.get_airtable_field_value(state["record_id"], field_name, survey)
+                                        if field_value:
+                                            message = message.replace(f"{{{{{field_name}}}}}", str(field_value))
+                                
+                                await self.send_message_with_retry(chat_id, message)
                                 await asyncio.sleep(1.5)
                             break
             
