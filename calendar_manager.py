@@ -9,7 +9,8 @@ from datetime import datetime, timedelta
 import pytz
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
-import pickle
+import base64
+import urllib.parse
 
 # Configure logging
 logging.basicConfig(
@@ -104,15 +105,23 @@ class CalendarManager:
                     )
                     
                     # For production, we'll use the authorization URL
-                    auth_url, _ = flow.authorization_url()
+                    auth_url, state = flow.authorization_url(access_type='offline')
                     logger.info(f"Authorization URL: {auth_url}")
                     
-                    # Store flow in a temporary file
-                    flow_path = os.path.join(CREDENTIALS_DIR, f'{user_id}_flow.pickle')
-                    with open(flow_path, 'wb') as f:
-                        pickle.dump(flow, f)
+                    # Store flow configuration in a temporary file
+                    flow_config = {
+                        'client_id': os.getenv("GOOGLE_CLIENT_ID"),
+                        'client_secret': os.getenv("GOOGLE_CLIENT_SECRET"),
+                        'redirect_uri': os.getenv("GOOGLE_REDIRECT_URI"),
+                        'state': state,
+                        'scope': SCOPES
+                    }
                     
-                    raise Exception("Authentication required. Please visit the authorization URL.")
+                    flow_path = os.path.join(CREDENTIALS_DIR, f'{user_id}_flow.json')
+                    with open(flow_path, 'w') as f:
+                        json.dump(flow_config, f)
+                    
+                    raise Exception(f"Authentication required. Please visit the authorization URL: {auth_url}")
                 
                 # Save the credentials
                 self._save_credentials_to_file(user_id, creds)
@@ -127,17 +136,35 @@ class CalendarManager:
     async def handle_oauth_callback(self, user_id: str, code: str) -> bool:
         """Handle OAuth callback and save credentials."""
         try:
-            # Get flow from temporary file
-            flow_path = os.path.join(CREDENTIALS_DIR, f'{user_id}_flow.pickle')
+            # Get flow configuration from temporary file
+            flow_path = os.path.join(CREDENTIALS_DIR, f'{user_id}_flow.json')
             if not os.path.exists(flow_path):
-                raise Exception("No OAuth flow found")
+                raise Exception("No OAuth flow configuration found")
                 
-            with open(flow_path, 'rb') as f:
-                flow = pickle.load(f)
+            with open(flow_path, 'r') as f:
+                flow_config = json.load(f)
             
             # Clean up flow file
             os.remove(flow_path)
             
+            # Create new flow with saved configuration
+            client_config = {
+                "web": {
+                    "client_id": flow_config['client_id'],
+                    "client_secret": flow_config['client_secret'],
+                    "redirect_uris": [flow_config['redirect_uri']],
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token"
+                }
+            }
+            
+            flow = InstalledAppFlow.from_client_config(
+                client_config,
+                flow_config['scope'],
+                redirect_uri=flow_config['redirect_uri']
+            )
+            
+            # Fetch token
             flow.fetch_token(code=code)
             
             # Save credentials
