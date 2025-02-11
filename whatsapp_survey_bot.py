@@ -1092,8 +1092,8 @@ class WhatsAppSurveyBot:
             state = self.survey_state[chat_id]
             survey = state["survey"]
             
-            # Get calendar settings
-            calendar_settings = survey.get('calendar_settings', {})
+            # Get calendar settings from survey
+            calendar_settings = getattr(survey, 'calendar_settings', None)
             if not calendar_settings:
                 logger.error("No calendar settings found in survey configuration")
                 await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בתהליך קביעת הפגישה.")
