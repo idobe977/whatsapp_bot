@@ -12,6 +12,7 @@
     "calendar_id": "idobe97@gmail.com",
     "slot_duration_minutes": 30,
     "buffer_between_meetings": 30,
+    "days_to_show": 7,
     "working_hours": {
       "sunday": {"start": "09:00", "end": "14:00"},
       "monday": {"start": "09:00", "end": "14:00"},
@@ -26,9 +27,9 @@
   },
 
   "messages": {
-    "welcome": "*תודה שהקדשת מזמנך!* 🙏\nהתשובות שלך יעזרו לי ללמוד ולהבין את האתגרים המרכזיים של עסקים כמוך. ��\n*אשמח להעניק לך פגישת אפיון עסקי במתנה* 🎁",
+    "welcome": "*תודה שהקדשת מזמנך!* 🙏\nהתשובות שלך יעזרו לי ללמוד ולהבין את האתגרים המרכזיים של עסקים כמוך. \n*אשמח להעניק לך פגישת אפיון עסקי במתנה* 🎁",
     "completion": {
-      "text": "תודה רבה על מילוי השאלון! ��\nאהיה איתך בקשר בקרוב.",
+      "text": "תודה רבה על מילוי השאלון! \nאהיה איתך בקשר בקרוב.",
       "should_generate_summary": true
     },
     "timeout": "השאלון בוטל עקב חוסר פעילות. אנא התחל מחדש.",
