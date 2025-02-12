@@ -18,11 +18,12 @@ class TimeSlot:
 
 class CalendarService:
     def __init__(self):
+        """Initialize the Calendar API service"""
         self.service = None
         self.timezone = pytz.timezone('Asia/Jerusalem')
-        self._initialize_service()
+        self.setup_service()
 
-    def _initialize_service(self) -> None:
+    def setup_service(self) -> None:
         """Initialize Google Calendar service"""
         try:
             service_account_json = os.getenv('GOOGLE_SERVICE_ACCOUNT')
@@ -62,15 +63,27 @@ class CalendarService:
     def get_available_slots(self, settings: Dict, date: datetime) -> List[TimeSlot]:
         """Get available time slots for a given date"""
         try:
-            # Get working hours
-            working_hours = settings.get('working_hours', {
-                'start': '09:00',
-                'end': '17:00'
-            })
+            # Get working hours with default values
+            default_working_hours = {
+                'sunday': {'start': '09:00', 'end': '17:00'},
+                'monday': {'start': '09:00', 'end': '17:00'},
+                'tuesday': {'start': '09:00', 'end': '17:00'},
+                'wednesday': {'start': '09:00', 'end': '17:00'},
+                'thursday': {'start': '09:00', 'end': '17:00'}
+            }
+            working_hours = settings.get('working_hours', default_working_hours)
+            
+            # Get current day's working hours
+            day_name = date.strftime('%A').lower()
+            if day_name not in working_hours:
+                logger.warning(f"No working hours defined for {day_name}")
+                return []
+                
+            day_hours = working_hours[day_name]
             
             # Parse working hours
-            start_hour, start_minute = map(int, working_hours['start'].split(':'))
-            end_hour, end_minute = map(int, working_hours['end'].split(':'))
+            start_hour, start_minute = map(int, day_hours['start'].split(':'))
+            end_hour, end_minute = map(int, day_hours['end'].split(':'))
             
             # Create datetime objects for start and end of working day
             day_start = self.timezone.localize(date.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0))
