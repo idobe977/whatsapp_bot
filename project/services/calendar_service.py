@@ -152,9 +152,18 @@ class CalendarService:
     def schedule_meeting(self, settings: Dict, slot: TimeSlot, attendee_data: Dict) -> Optional[Dict]:
         """Schedule a meeting in the selected time slot"""
         try:
+            # Get meeting title and description from templates
+            title = settings.get('meeting_title_template', 'פגישה')
+            description = settings.get('meeting_description_template', 'פגישה שנקבעה דרך הבוט')
+            
+            # Replace placeholders in title and description
+            for key, value in attendee_data.items():
+                title = title.replace(f"{{{{שם מלא}}}}", attendee_data.get('שם מלא', ''))
+                description = description.replace(f"{{{{phone}}}}", attendee_data.get('phone', ''))
+            
             event = {
-                'summary': settings.get('event_title', 'פגישה'),
-                'description': settings.get('event_description', 'פגישה שנקבעה דרך הבוט'),
+                'summary': title,
+                'description': description,
                 'start': {
                     'dateTime': slot.start_time.isoformat(),
                     'timeZone': self.timezone.zone
@@ -163,25 +172,28 @@ class CalendarService:
                     'dateTime': slot.end_time.isoformat(),
                     'timeZone': self.timezone.zone
                 },
-                'attendees': [
-                    {'email': settings.get('organizer_email')},
-                    {'email': attendee_data.get('email')}
-                ] if attendee_data.get('email') else None,
                 'reminders': {
                     'useDefault': False,
                     'overrides': [
-                        {'method': 'popup', 'minutes': 30},
-                        {'method': 'email', 'minutes': 60}
+                        {'method': 'popup', 'minutes': 24 * 60},  # 24 hours before
+                        {'method': 'popup', 'minutes': 60}  # 1 hour before
                     ]
-                }
+                },
+                'visibility': 'default',  # Use calendar's default visibility
+                'transparency': 'opaque',  # Show as busy
+                'guestsCanModify': False,  # Prevent guests from modifying
+                'guestsCanInviteOthers': False,  # Prevent guests from inviting others
+                'guestsCanSeeOtherGuests': False  # Prevent guests from seeing other guests
             }
             
             # Create the event
             event = self.service.events().insert(
                 calendarId=settings.get('calendar_id', 'primary'),
                 body=event,
-                sendUpdates='all'
+                sendUpdates='none'  # Don't send emails since we're using WhatsApp
             ).execute()
+            
+            logger.info(f"Successfully created calendar event: {event.get('id')}")
             
             # Generate ICS file
             ics_content = f"""BEGIN:VCALENDAR
@@ -190,12 +202,17 @@ PRODID:-//WhatsApp Survey Bot//Calendar Manager//EN
 BEGIN:VEVENT
 DTSTART;TZID={self.timezone.zone}:{slot.start_time.strftime('%Y%m%dT%H%M%S')}
 DTEND;TZID={self.timezone.zone}:{slot.end_time.strftime('%Y%m%dT%H%M%S')}
-SUMMARY:{event.get('summary', 'פגישה')}
-DESCRIPTION:{event.get('description', 'פגישה שנקבעה דרך הבוט')}
+SUMMARY:{title}
+DESCRIPTION:{description}
 BEGIN:VALARM
 ACTION:DISPLAY
 DESCRIPTION:תזכורת לפגישה
-TRIGGER:-PT30M
+TRIGGER:-P1D
+END:VALARM
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:תזכורת לפגישה
+TRIGGER:-PT1H
 END:VALARM
 END:VEVENT
 END:VCALENDAR""".replace('\n', '\r\n')
@@ -213,4 +230,6 @@ END:VCALENDAR""".replace('\n', '\r\n')
             
         except Exception as e:
             logger.error(f"Error scheduling meeting: {e}")
+            if hasattr(e, 'response') and e.response:
+                logger.error(f"API Error response: {e.response.text}")
             return None
