@@ -817,7 +817,7 @@ class WhatsAppService:
             del self.airtable_cache[k]
 
     async def update_airtable_record(self, record_id: str, data: Dict, survey: SurveyDefinition) -> bool:
-        """Update Airtable record asynchronously with batching support."""
+        """Update Airtable record."""
         try:
             # Get cached record if available
             cached_record = self.get_cached_airtable_record(record_id, survey.airtable_table_id)
@@ -826,53 +826,14 @@ class WhatsAppService:
                 cached_record.update(data)
                 self.cache_airtable_record(record_id, survey.airtable_table_id, cached_record)
             
-            # Add to batch queue
-            if not hasattr(self, '_airtable_batch_queue'):
-                self._airtable_batch_queue = []
-            
-            self._airtable_batch_queue.append({
-                'table_id': survey.airtable_table_id,
-                'record_id': record_id,
-                'data': data
-            })
-            
-            # Process batch if queue is full or immediate update is needed
-            if len(self._airtable_batch_queue) >= 10:  # Process in batches of 10
-                await self._process_airtable_batch()
-            
+            # Update Airtable directly
+            table = self.airtable.table(AIRTABLE_BASE_ID, survey.airtable_table_id)
+            table.update(record_id, data)
             return True
             
         except Exception as e:
             logger.error(f"Error updating Airtable record: {e}")
             return False
-
-    async def _process_airtable_batch(self) -> None:
-        """Process batched Airtable updates."""
-        if not self._airtable_batch_queue:
-            return
-            
-        try:
-            # Group updates by table
-            updates_by_table = {}
-            for update in self._airtable_batch_queue:
-                table_id = update['table_id']
-                if table_id not in updates_by_table:
-                    updates_by_table[table_id] = []
-                updates_by_table[table_id].append({
-                    'id': update['record_id'],
-                    'fields': update['data']
-                })
-            
-            # Process each table's updates
-            for table_id, records in updates_by_table.items():
-                table = self.airtable.table(AIRTABLE_BASE_ID, table_id)
-                table.batch_update(records)
-            
-            # Clear the queue
-            self._airtable_batch_queue.clear()
-            
-        except Exception as e:
-            logger.error(f"Error processing Airtable batch: {e}")
 
     def clean_text_for_airtable(self, text: str) -> str:
         """Clean text by replacing special characters for Airtable compatibility"""
