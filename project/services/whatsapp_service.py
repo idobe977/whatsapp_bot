@@ -42,7 +42,14 @@ class WhatsAppService:
     def load_surveys(self) -> List[SurveyDefinition]:
         """Load all survey definitions during initialization"""
         logger.info("Loading surveys...")
-        return load_surveys_from_json()
+        surveys = load_surveys_from_json()
+        if not surveys:
+            logger.warning("No surveys were loaded!")
+        else:
+            logger.info(f"Loaded {len(surveys)} surveys with triggers:")
+            for survey in surveys:
+                logger.info(f"Survey '{survey.name}' triggers: {survey.trigger_phrases}")
+        return surveys
 
     async def handle_text_message(self, chat_id: str, text: str, sender_name: str = "") -> None:
         """Handle incoming text message and check for survey triggers"""
@@ -451,7 +458,7 @@ class WhatsAppService:
 def load_surveys_from_json() -> List[SurveyDefinition]:
     """Load all survey definitions from JSON files in the surveys directory"""
     surveys = []
-    surveys_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), '..', 'surveys')
+    surveys_dir = 'surveys'  # Changed from complex path to simple directory name
     
     if not os.path.exists(surveys_dir):
         os.makedirs(surveys_dir)
