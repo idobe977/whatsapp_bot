@@ -889,21 +889,25 @@ class WhatsAppService:
                 await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בתהליך קביעת הפגישה.")
                 return
             
-            # Get available dates for next N days
-            days_to_show = calendar_settings.get('days_to_show', 14)
+            # Get next 7 days (excluding weekends if specified)
             available_dates = []
             current_date = datetime.now()
+            days_checked = 0
+            weekend_days = calendar_settings.get('weekend_days', [5, 6])  # Friday and Saturday by default
             
-            for _ in range(days_to_show):
-                slots = self.calendar_manager.get_available_slots(calendar_settings, current_date)
-                if slots:
-                    available_dates.append(current_date.date())
+            while len(available_dates) < 7 and days_checked < 14:  # Check up to 14 days to find 7 working days
+                if current_date.weekday() not in weekend_days:
+                    # Only add days that have available slots
+                    slots = self.calendar_manager.get_available_slots(calendar_settings, current_date)
+                    if slots:
+                        available_dates.append(current_date.date())
                 current_date += timedelta(days=1)
+                days_checked += 1
             
             if not available_dates:
                 await self.send_message_with_retry(
                     chat_id,
-                    question.get('no_slots_message', "מצטערים, אין זמנים פנויים כרגע.")
+                    question.get('no_slots_message', "מצטערים, אין זמנים פנויים בשבוע הקרוב.")
                 )
                 return
             
@@ -919,8 +923,11 @@ class WhatsAppService:
                           for d in available_dates]
             
             # Send poll for date selection
+            await self.send_message_with_retry(chat_id, "בחר/י את היום המועדף לפגישה:")
+            await asyncio.sleep(1)
+            
             poll_response = await self.send_poll(chat_id, {
-                'text': "באיזה תאריך תרצה/י לקבוע את הפגישה? 📅",
+                'text': "ימים פנויים לשבוע הקרוב 📅",
                 'options': date_options,
                 'type': 'poll',
                 'multipleAnswers': False
@@ -945,17 +952,6 @@ class WhatsAppService:
             if not scheduler_state:
                 logger.error("No meeting scheduler state found")
                 return
-            
-            # Parse day name and date from selected format
-            day_name_map = {
-                'ראשון': 'Sunday',
-                'שני': 'Monday',
-                'שלישי': 'Tuesday',
-                'רביעי': 'Wednesday',
-                'חמישי': 'Thursday',
-                'שישי': 'Friday',
-                'שבת': 'Saturday'
-            }
             
             # Extract date from format "יום שלישי 13/2"
             date_parts = selected_date_str.split(' ')
@@ -994,12 +990,22 @@ class WhatsAppService:
             scheduler_state['selected_date'] = selected_date
             scheduler_state['available_slots'] = slots
             
-            # Create time selection poll
-            time_options = [str(slot) for slot in slots]
+            # Format time slots for better readability
+            time_options = []
+            for slot in slots:
+                # Format time as "HH:MM"
+                time_str = slot.strftime("%H:%M")
+                time_options.append(time_str)
+            
+            # Send message and poll for time selection
+            await self.send_message_with_retry(chat_id, f"בחר/י שעה מועדפת ליום {selected_date_str}:")
+            await asyncio.sleep(1)
+            
             await self.send_poll(chat_id, {
-                'text': f"באיזו שעה תרצה/י לקבוע את הפגישה ב{selected_date_str}? ⏰",
+                'text': "שעות פנויות 🕒",
                 'options': time_options,
-                'type': 'poll'
+                'type': 'poll',
+                'multipleAnswers': False
             })
             
         except Exception as e:
@@ -1016,17 +1022,21 @@ class WhatsAppService:
                 logger.error("No meeting scheduler state found")
                 return
             
-            # Find selected slot
-            selected_slot = None
-            for slot in scheduler_state['available_slots']:
-                if str(slot) == selected_time_str:
-                    selected_slot = slot
-                    break
+            # Convert selected time string to datetime
+            hour, minute = map(int, selected_time_str.split(':'))
+            selected_date = scheduler_state['selected_date']
+            selected_slot = selected_date.replace(hour=hour, minute=minute)
             
-            if not selected_slot:
+            # Verify slot is still available
+            available_slots = self.calendar_manager.get_available_slots(
+                scheduler_state['calendar_settings'],
+                selected_date
+            )
+            
+            if selected_slot not in available_slots:
                 await self.send_message_with_retry(
                     chat_id,
-                    "מצטערים, הזמן שנבחר אינו זמין יותר. אנא בחר זמן אחר."
+                    "מצטערים, השעה שנבחרה אינה זמינה יותר. אנא בחר שעה אחרת."
                 )
                 return
             
@@ -1047,29 +1057,28 @@ class WhatsAppService:
                 # Store event ID in state
                 scheduler_state['event_id'] = result['event_id']
                 
-                # Send confirmation message
-                confirmation_message = scheduler_state['question'].get(
-                    'confirmation_message',
-                    "הפגישה נקבעה בהצלחה! 🎉\n{{meeting_time}}"
-                )
+                # Format date and time for confirmation
+                formatted_date = selected_date.strftime("%d/%m/%Y")
+                formatted_time = selected_time_str
                 
-                confirmation_message = confirmation_message.replace(
-                    "{{meeting_time}}",
-                    f"{scheduler_state['selected_date'].strftime('%d/%m/%Y')} {selected_time_str}"
+                # Send confirmation messages
+                await self.send_message_with_retry(
+                    chat_id, 
+                    f"*הפגישה נקבעה בהצלחה! 🎉*\n\n"
+                    f"📅 תאריך: {formatted_date}\n"
+                    f"🕒 שעה: {formatted_time}\n\n"
+                    f"אשלח לך כעת קובץ להוספת הפגישה ליומן שלך."
                 )
-                
-                await self.send_message_with_retry(chat_id, confirmation_message)
+                await asyncio.sleep(1)
                 
                 # Send ICS file
                 try:
                     url = f"https://api.greenapi.com/waInstance{self.instance_id}/sendFileByUpload/{self.api_token}"
                     
-                    # Create aiohttp FormData
                     form = aiohttp.FormData()
                     form.add_field('chatId', chat_id)
                     form.add_field('caption', "לחץ על הקובץ כדי להוסיף את הפגישה ליומן שלך 📅")
                     
-                    # Keep file open until after sending
                     with open(result['ics_file'], 'rb') as f:
                         file_content = f.read()
                         form.add_field('file', file_content, 
@@ -1086,7 +1095,6 @@ class WhatsAppService:
                     
                 except Exception as e:
                     logger.error(f"Error sending ICS file: {str(e)}")
-                    logger.error(f"Stack trace: {traceback.format_exc()}")
                 
                 # Move to next question
                 state["current_question"] += 1
@@ -1099,7 +1107,6 @@ class WhatsAppService:
             
         except Exception as e:
             logger.error(f"Error in handle_meeting_time_selection: {str(e)}")
-            logger.error(f"Stack trace: {traceback.format_exc()}")
             await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בקביעת הפגישה.")
 
     def create_initial_record(self, chat_id: str, sender_name: str, survey: SurveyDefinition) -> Optional[str]:
