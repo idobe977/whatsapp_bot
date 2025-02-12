@@ -25,7 +25,7 @@ AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
 
 # Initialize Gemini
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel("gemini-pro")
+model = genai.GenerativeModel("gemini-2.0-pro-exp-02-05")
 
 class WhatsAppService:
     def __init__(self, instance_id: str, api_token: str):
@@ -82,6 +82,24 @@ class WhatsAppService:
         try:
             logger.info(f"Processing text message from {chat_id} (sender: {sender_name})")
             logger.debug(f"Message content: {text[:100]}...")  # Log first 100 chars
+            
+            # Check for stop phrases
+            stop_phrases = ["הפסקת שאלון", "בוא נפסיק"]
+            if chat_id in self.survey_state and any(phrase in text.lower() for phrase in stop_phrases):
+                logger.info(f"User requested to stop survey: {chat_id}")
+                await self.send_message_with_retry(chat_id, "השאלון הופסק. תודה על ההשתתפות!")
+                
+                # Update Airtable status
+                state = self.survey_state[chat_id]
+                await self.update_airtable_record(
+                    state["record_id"],
+                    {"סטטוס": "בוטל"},
+                    state["survey"]
+                )
+                
+                # Clean up state
+                del self.survey_state[chat_id]
+                return
             
             # First check if user is in middle of a survey
             if chat_id in self.survey_state:
@@ -249,6 +267,17 @@ class WhatsAppService:
                 cleaned_answer = cleaned_answer.replace(emoji, "")
             cleaned_answer = cleaned_answer.strip()
             
+            # Get the original options from the question
+            current_question = survey.questions[state["current_question"]]
+            if current_question["type"] == "poll" and "options" in current_question:
+                # Find the matching original option
+                original_option = next(
+                    (opt for opt in current_question["options"] 
+                     if self.clean_text_for_airtable(opt) == cleaned_answer),
+                    cleaned_answer
+                )
+                cleaned_answer = original_option
+            
             # Update Airtable with the cleaned answer
             await self.update_airtable_record(
                 state["record_id"],
@@ -257,10 +286,9 @@ class WhatsAppService:
             )
             
             # Process flow logic if this is the last question
-            current_question = survey.questions[state["current_question"]]
             if "flow" in current_question:
                 flow = current_question["flow"]
-                if "if" in flow and flow["if"]["answer"] == answer_content:
+                if "if" in flow and flow["if"]["answer"] == cleaned_answer:
                     if "say" in flow["if"]["then"]:
                         message = flow["if"]["then"]["say"]
                         # Replace Airtable field placeholders
@@ -275,7 +303,7 @@ class WhatsAppService:
                         await asyncio.sleep(1.5)
                 elif "else_if" in flow:
                     for else_if in flow["else_if"]:
-                        if else_if["answer"] == answer_content:
+                        if else_if["answer"] == cleaned_answer:
                             if "say" in else_if["then"]:
                                 message = else_if["then"]["say"]
                                 # Replace Airtable field placeholders
@@ -889,14 +917,23 @@ class WhatsAppService:
             # Create date selection poll with formatted dates
             date_options = [self.calendar_manager._format_date_for_display(datetime.combine(d, datetime.min.time())) 
                           for d in available_dates]
-            await self.send_poll(chat_id, {
+            
+            # Send poll for date selection
+            poll_response = await self.send_poll(chat_id, {
                 'text': "באיזה תאריך תרצה/י לקבוע את הפגישה? 📅",
                 'options': date_options,
-                'type': 'poll'
+                'type': 'poll',
+                'multipleAnswers': False
             })
+            
+            if "error" in poll_response:
+                logger.error(f"Error sending poll: {poll_response['error']}")
+                await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בשליחת האפשרויות לבחירה.")
+                return
             
         except Exception as e:
             logger.error(f"Error in handle_meeting_scheduler: {str(e)}")
+            logger.error(f"Stack trace: {traceback.format_exc()}")
             await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בתהליך קביעת הפגישה.")
 
     async def handle_meeting_date_selection(self, chat_id: str, selected_date_str: str) -> None:
