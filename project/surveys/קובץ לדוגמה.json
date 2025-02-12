@@ -15,6 +15,7 @@
     "calendar_id": "idobe97@gmail.com",
     "slot_duration_minutes": 30,
     "buffer_between_meetings": 30,
+    "days_to_show": 7,
     "working_hours": {
       "sunday": {"start": "09:00", "end": "14:00"},
       "monday": {"start": "09:00", "end": "14:00"},
