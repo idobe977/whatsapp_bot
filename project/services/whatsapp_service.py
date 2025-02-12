@@ -815,6 +815,8 @@ class WhatsAppService:
             
             if question["type"] == "poll":
                 await self.send_poll(chat_id, question)
+            elif question["type"] == "meeting_scheduler":
+                await self.handle_meeting_scheduler(chat_id, question)
             else:
                 await self.send_message_with_retry(chat_id, question["text"])
         else:
