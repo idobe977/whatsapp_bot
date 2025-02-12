@@ -891,13 +891,14 @@ class WhatsAppService:
                 await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בתהליך קביעת הפגישה.")
                 return
             
-            # Get next 7 days (excluding weekends if specified)
+            # Get next N days (excluding weekends if specified)
             available_dates = []
             current_date = datetime.now()
             days_checked = 0
+            days_to_show = calendar_settings.get('days_to_show', 7)  # Default to 14 days if not specified
             weekend_days = calendar_settings.get('weekend_days', [5, 6])  # Friday and Saturday by default
             
-            while len(available_dates) < 7 and days_checked < 14:  # Check up to 14 days to find 7 working days
+            while len(available_dates) < days_to_show and days_checked < days_to_show * 2:  # Check up to double the days to find enough working days
                 if current_date.weekday() not in weekend_days:
                     # Only add days that have available slots
                     slots = self.calendar_manager.get_available_slots(calendar_settings, current_date)
@@ -909,7 +910,7 @@ class WhatsAppService:
             if not available_dates:
                 await self.send_message_with_retry(
                     chat_id,
-                    question.get('no_slots_message', "מצטערים, אין זמנים פנויים בשבוע הקרוב.")
+                    question.get('no_slots_message', f"מצטערים, אין זמנים פנויים ב-{days_to_show} הימים הקרובים.")
                 )
                 return
             
@@ -929,7 +930,7 @@ class WhatsAppService:
             await asyncio.sleep(1)
             
             poll_response = await self.send_poll(chat_id, {
-                'text': "ימים פנויים לשבוע הקרוב 📅",
+                'text': f"ימים פנויים ל-{days_to_show} הימים הקרובים 📅",
                 'options': date_options,
                 'type': 'poll',
                 'multipleAnswers': False
