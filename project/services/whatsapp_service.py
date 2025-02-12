@@ -14,7 +14,7 @@ import traceback
 import time
 from dotenv import load_dotenv
 import re
-from project.services.calendar_service import CalendarService
+from .calendar_service import CalendarService
 from pyairtable import Api
 
 load_dotenv()
@@ -997,7 +997,7 @@ class WhatsAppService:
             time_options = []
             for slot in slots:
                 # Format time as "HH:MM"
-                time_str = slot.strftime("%H:%M")
+                time_str = f"{slot.start_time.strftime('%H:%M')}"
                 time_options.append(time_str)
             
             # Send message and poll for time selection
