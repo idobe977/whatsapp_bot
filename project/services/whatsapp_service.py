@@ -8,17 +8,20 @@ from project.utils.logger import logger
 from project.models.survey import SurveyDefinition
 import os
 import glob
-from datetime import datetime
+from datetime import datetime, timedelta
 import google.generativeai as genai
 import traceback
 import time
 from dotenv import load_dotenv
+import re
+from project.services.calendar_service import CalendarService
+from pyairtable import Api
 
 load_dotenv()
 
-# קבל את המשתנה הרצוי
+# Get environment variables
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
-
+AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
 
 # Initialize Gemini
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
@@ -26,27 +29,41 @@ model = genai.GenerativeModel("gemini-pro")
 
 class WhatsAppService:
     def __init__(self, instance_id: str, api_token: str):
-        self.instance_id = instance_id
-        self.api_token = api_token
-        self.base_url = f"https://api.greenapi.com/waInstance{instance_id}"
-        self.surveys = self.load_surveys()
-        self.survey_state = {}  # Track survey state for each user
-        self.reflection_cache = {}  # Cache for AI reflections
-        
-        # Connection pool settings
-        self.MAX_CONNECTIONS = 100
-        self.KEEPALIVE_TIMEOUT = 75
-        self.DNS_CACHE_TTL = 300
-        self.CONNECTION_TIMEOUT = 10
-        self.SOCKET_TIMEOUT = 5
-        self.MAX_RETRIES = 3
-        self.RETRY_DELAY = 2
-        self.SURVEY_TIMEOUT = 30  # Minutes
-        
-        logger.info("WhatsAppService initialized successfully")
-        logger.info(f"Loaded {len(self.surveys)} surveys")
-        for survey in self.surveys:
-            logger.info(f"Survey loaded: {survey.name} with {len(survey.trigger_phrases)} trigger phrases")
+        try:
+            self.instance_id = instance_id
+            self.api_token = api_token
+            self.base_url = f"https://api.greenapi.com/waInstance{instance_id}"
+            
+            # Initialize Airtable client
+            self.airtable = Api(AIRTABLE_API_KEY)
+            logger.info("Initialized Airtable client")
+            
+            self.surveys = self.load_surveys()
+            self.survey_state = {}  # Track survey state for each user
+            self.reflection_cache = {}  # Cache for AI reflections
+            self.airtable_cache = {}  # Cache for Airtable records
+            self.airtable_cache_timeout = 300  # 5 minutes
+            
+            # Initialize calendar manager
+            self.calendar_manager = CalendarService()
+            
+            # Connection pool settings
+            self.MAX_CONNECTIONS = 100
+            self.KEEPALIVE_TIMEOUT = 75
+            self.DNS_CACHE_TTL = 300
+            self.CONNECTION_TIMEOUT = 10
+            self.SOCKET_TIMEOUT = 5
+            self.MAX_RETRIES = 3
+            self.RETRY_DELAY = 2
+            self.SURVEY_TIMEOUT = 30  # Minutes
+            
+            logger.info("WhatsAppService initialized successfully")
+            logger.info(f"Loaded {len(self.surveys)} surveys")
+            for survey in self.surveys:
+                logger.info(f"Survey loaded: {survey.name} with {len(survey.trigger_phrases)} trigger phrases")
+        except Exception as e:
+            logger.error(f"Error initializing WhatsAppService: {str(e)}")
+            raise
 
     def load_surveys(self) -> List[SurveyDefinition]:
         """Load all survey definitions during initialization"""
@@ -162,10 +179,146 @@ class WhatsAppService:
 
     async def handle_poll_response(self, chat_id: str, poll_data: Dict) -> None:
         """Handle poll response"""
-        logger.info(f"Processing poll response from {chat_id}")
-        logger.debug(f"Poll data: {poll_data}")
-        # TODO: Implement poll response handling
-        logger.info("Poll response handling not implemented yet")
+        if chat_id not in self.survey_state:
+            logger.warning(f"Received poll response for unknown chat_id: {chat_id}")
+            return
+
+        state = self.survey_state[chat_id]
+        state['last_activity'] = datetime.now()
+
+        # Check if this is a meeting scheduler response
+        scheduler_state = state.get('meeting_scheduler')
+        if scheduler_state:
+            selected_options = []
+            if "votes" in poll_data:
+                for vote in poll_data["votes"]:
+                    if "optionVoters" in vote and chat_id in vote.get("optionVoters", []):
+                        selected_options.append(vote["optionName"])
+            
+            if selected_options:
+                selected_option = selected_options[0]
+                
+                # Check if this is date selection or time selection
+                if scheduler_state.get('selected_date') is None:
+                    # This is date selection
+                    await self.handle_meeting_date_selection(chat_id, selected_option)
+                else:
+                    # This is time selection
+                    await self.handle_meeting_time_selection(chat_id, selected_option)
+            return
+
+        # Regular poll handling
+        current_question = state["survey"].questions[state["current_question"]]
+        question_id = current_question["id"]
+        
+        # Check if current question is a poll question
+        if current_question["type"] != "poll":
+            logger.warning(f"Ignoring poll response as current question {question_id} is not a poll question")
+            return
+            
+        # Check if this poll response matches the current question's name
+        if poll_data.get("name") != current_question["text"]:
+            logger.warning(f"Ignoring poll response as it doesn't match current question. Expected: {current_question['text']}, Got: {poll_data.get('name')}")
+            return
+        
+        logger.info(f"Processing poll response for question: {question_id}")
+        logger.debug(f"Poll data: {json.dumps(poll_data, ensure_ascii=False)}")
+        
+        selected_options = []
+        if "votes" in poll_data:
+            for vote in poll_data["votes"]:
+                if "optionVoters" in vote and chat_id in vote.get("optionVoters", []):
+                    selected_options.append(vote["optionName"])
+        
+        if selected_options:
+            # Use the full selected option text without processing
+            answer_content = selected_options[0]
+            await self.process_poll_answer(chat_id, answer_content, question_id)
+        else:
+            logger.warning(f"No valid options selected for chat_id: {chat_id}")
+
+    async def process_poll_answer(self, chat_id: str, answer_content: str, question_id: str) -> None:
+        """Process poll answer and update Airtable"""
+        try:
+            state = self.survey_state[chat_id]
+            survey = state["survey"]
+            
+            # Clean the answer by removing emojis and special characters
+            cleaned_answer = answer_content
+            for emoji in ["⚡", "⏱️", "⏰", "😊", "🙈", "🎁", "🎉"]:
+                cleaned_answer = cleaned_answer.replace(emoji, "")
+            cleaned_answer = cleaned_answer.strip()
+            
+            # Update Airtable with the cleaned answer
+            await self.update_airtable_record(
+                state["record_id"],
+                {question_id: cleaned_answer},
+                survey
+            )
+            
+            # Process flow logic if this is the last question
+            current_question = survey.questions[state["current_question"]]
+            if "flow" in current_question:
+                flow = current_question["flow"]
+                if "if" in flow and flow["if"]["answer"] == answer_content:
+                    if "say" in flow["if"]["then"]:
+                        message = flow["if"]["then"]["say"]
+                        # Replace Airtable field placeholders
+                        if "{{" in message and "}}" in message:
+                            placeholders = re.findall(r'\{\{(.*?)\}\}', message)
+                            for field_name in placeholders:
+                                field_value = await self.get_airtable_field_value(state["record_id"], field_name, survey)
+                                if field_value:
+                                    message = message.replace(f"{{{{{field_name}}}}}", str(field_value))
+                        
+                        await self.send_message_with_retry(chat_id, message)
+                        await asyncio.sleep(1.5)
+                elif "else_if" in flow:
+                    for else_if in flow["else_if"]:
+                        if else_if["answer"] == answer_content:
+                            if "say" in else_if["then"]:
+                                message = else_if["then"]["say"]
+                                # Replace Airtable field placeholders
+                                if "{{" in message and "}}" in message:
+                                    placeholders = re.findall(r'\{\{(.*?)\}\}', message)
+                                    for field_name in placeholders:
+                                        field_value = await self.get_airtable_field_value(state["record_id"], field_name, survey)
+                                        if field_value:
+                                            message = message.replace(f"{{{{{field_name}}}}}", str(field_value))
+                                
+                                await self.send_message_with_retry(chat_id, message)
+                                await asyncio.sleep(1.5)
+                            break
+            
+            # Move to next question
+            state["current_question"] += 1
+            await self.send_next_question(chat_id)
+            
+        except Exception as e:
+            logger.error(f"Error processing poll answer: {str(e)}")
+            await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד התשובה. נא לנסות שוב.")
+
+    async def get_airtable_field_value(self, record_id: str, field_name: str, survey: SurveyDefinition) -> Optional[str]:
+        """Get field value from Airtable record"""
+        try:
+            # Check cache first
+            cached_record = self.get_cached_airtable_record(record_id, survey.airtable_table_id)
+            if cached_record and field_name in cached_record:
+                return cached_record[field_name]
+            
+            # If not in cache, fetch from Airtable
+            table = self.airtable.table(AIRTABLE_BASE_ID, survey.airtable_table_id)
+            record = table.get(record_id)
+            
+            if record and "fields" in record:
+                # Cache the record
+                self.cache_airtable_record(record_id, survey.airtable_table_id, record["fields"])
+                return record["fields"].get(field_name)
+                
+            return None
+        except Exception as e:
+            logger.error(f"Error getting Airtable field value: {e}")
+            return None
 
     @asynccontextmanager
     async def get_session(self) -> AsyncGenerator[ClientSession, None]:
@@ -733,6 +886,244 @@ class WhatsAppService:
         text = ' '.join(text.split())
         
         return text.strip()
+
+    async def handle_meeting_scheduler(self, chat_id: str, question: Dict) -> None:
+        """Handle meeting scheduler question type."""
+        try:
+            state = self.survey_state[chat_id]
+            survey = state["survey"]
+            
+            # Get calendar settings from survey
+            calendar_settings = survey.calendar_settings if hasattr(survey, 'calendar_settings') else None
+            if not calendar_settings:
+                logger.error("No calendar settings found in survey configuration")
+                await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בתהליך קביעת הפגישה.")
+                return
+            
+            # Get available dates for next N days
+            days_to_show = calendar_settings.get('days_to_show', 14)
+            available_dates = []
+            current_date = datetime.now()
+            
+            for _ in range(days_to_show):
+                slots = self.calendar_manager.get_available_slots(calendar_settings, current_date)
+                if slots:
+                    available_dates.append(current_date.date())
+                current_date += timedelta(days=1)
+            
+            if not available_dates:
+                await self.send_message_with_retry(
+                    chat_id,
+                    question.get('no_slots_message', "מצטערים, אין זמנים פנויים כרגע.")
+                )
+                return
+            
+            # Store available dates in state
+            state['meeting_scheduler'] = {
+                'available_dates': available_dates,
+                'calendar_settings': calendar_settings,
+                'question': question
+            }
+            
+            # Create date selection poll with formatted dates
+            date_options = [self.calendar_manager._format_date_for_display(datetime.combine(d, datetime.min.time())) 
+                          for d in available_dates]
+            await self.send_poll(chat_id, {
+                'text': "באיזה תאריך תרצה/י לקבוע את הפגישה? 📅",
+                'options': date_options,
+                'type': 'poll'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in handle_meeting_scheduler: {str(e)}")
+            await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בתהליך קביעת הפגישה.")
+
+    async def handle_meeting_date_selection(self, chat_id: str, selected_date_str: str) -> None:
+        """Handle meeting date selection."""
+        try:
+            state = self.survey_state[chat_id]
+            scheduler_state = state.get('meeting_scheduler')
+            
+            if not scheduler_state:
+                logger.error("No meeting scheduler state found")
+                return
+            
+            # Parse day name and date from selected format
+            day_name_map = {
+                'ראשון': 'Sunday',
+                'שני': 'Monday',
+                'שלישי': 'Tuesday',
+                'רביעי': 'Wednesday',
+                'חמישי': 'Thursday',
+                'שישי': 'Friday',
+                'שבת': 'Saturday'
+            }
+            
+            # Extract date from format "יום שלישי 13/2"
+            date_parts = selected_date_str.split(' ')
+            date_str = date_parts[-1]  # Get the actual date part
+            day, month = map(int, date_str.split('/'))
+            year = datetime.now().year
+            
+            # Find matching date from available dates
+            selected_date = None
+            for date in scheduler_state['available_dates']:
+                if date.day == day and date.month == month:
+                    selected_date = datetime.combine(date, datetime.min.time())
+                    break
+            
+            if not selected_date:
+                await self.send_message_with_retry(
+                    chat_id,
+                    "מצטערים, התאריך שנבחר אינו זמין יותר. אנא בחר תאריך אחר."
+                )
+                return
+            
+            # Get available slots for selected date
+            slots = self.calendar_manager.get_available_slots(
+                scheduler_state['calendar_settings'],
+                selected_date
+            )
+            
+            if not slots:
+                await self.send_message_with_retry(
+                    chat_id,
+                    "מצטערים, אין זמנים פנויים בתאריך שנבחר. אנא בחר תאריך אחר."
+                )
+                return
+            
+            # Store slots in state
+            scheduler_state['selected_date'] = selected_date
+            scheduler_state['available_slots'] = slots
+            
+            # Create time selection poll
+            time_options = [str(slot) for slot in slots]
+            await self.send_poll(chat_id, {
+                'text': f"באיזו שעה תרצה/י לקבוע את הפגישה ב{selected_date_str}? ⏰",
+                'options': time_options,
+                'type': 'poll'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in handle_meeting_date_selection: {str(e)}")
+            await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בבחירת התאריך.")
+
+    async def handle_meeting_time_selection(self, chat_id: str, selected_time_str: str) -> None:
+        """Handle meeting time selection."""
+        try:
+            state = self.survey_state[chat_id]
+            scheduler_state = state.get('meeting_scheduler')
+            
+            if not scheduler_state:
+                logger.error("No meeting scheduler state found")
+                return
+            
+            # Find selected slot
+            selected_slot = None
+            for slot in scheduler_state['available_slots']:
+                if str(slot) == selected_time_str:
+                    selected_slot = slot
+                    break
+            
+            if not selected_slot:
+                await self.send_message_with_retry(
+                    chat_id,
+                    "מצטערים, הזמן שנבחר אינו זמין יותר. אנא בחר זמן אחר."
+                )
+                return
+            
+            # Get attendee data from previous answers
+            attendee_data = {
+                'שם מלא': state['answers'].get('שם מלא', ''),
+                'phone': chat_id.split('@')[0]  # Extract phone number from chat_id
+            }
+            
+            # Schedule the meeting
+            result = self.calendar_manager.schedule_meeting(
+                scheduler_state['calendar_settings'],
+                selected_slot,
+                attendee_data
+            )
+            
+            if result:
+                # Store event ID in state
+                scheduler_state['event_id'] = result['event_id']
+                
+                # Send confirmation message
+                confirmation_message = scheduler_state['question'].get(
+                    'confirmation_message',
+                    "הפגישה נקבעה בהצלחה! 🎉\n{{meeting_time}}"
+                )
+                
+                confirmation_message = confirmation_message.replace(
+                    "{{meeting_time}}",
+                    f"{scheduler_state['selected_date'].strftime('%d/%m/%Y')} {selected_time_str}"
+                )
+                
+                await self.send_message_with_retry(chat_id, confirmation_message)
+                
+                # Send ICS file
+                try:
+                    url = f"https://api.greenapi.com/waInstance{self.instance_id}/sendFileByUpload/{self.api_token}"
+                    
+                    # Create aiohttp FormData
+                    form = aiohttp.FormData()
+                    form.add_field('chatId', chat_id)
+                    form.add_field('caption', "לחץ על הקובץ כדי להוסיף את הפגישה ליומן שלך 📅")
+                    
+                    # Keep file open until after sending
+                    with open(result['ics_file'], 'rb') as f:
+                        file_content = f.read()
+                        form.add_field('file', file_content, 
+                            filename='meeting.ics',
+                            content_type='text/calendar')
+                    
+                        async with aiohttp.ClientSession() as session:
+                            async with session.post(url, data=form) as response:
+                                if response.status != 200:
+                                    logger.error(f"Failed to send ICS file: {await response.text()}")
+                    
+                    # Clean up temporary file
+                    os.remove(result['ics_file'])
+                    
+                except Exception as e:
+                    logger.error(f"Error sending ICS file: {str(e)}")
+                    logger.error(f"Stack trace: {traceback.format_exc()}")
+                
+                # Move to next question
+                state["current_question"] += 1
+                await self.send_next_question(chat_id)
+            else:
+                await self.send_message_with_retry(
+                    chat_id,
+                    "מצטערים, הייתה שגיאה בקביעת הפגישה. אנא נסה שוב."
+                )
+            
+        except Exception as e:
+            logger.error(f"Error in handle_meeting_time_selection: {str(e)}")
+            logger.error(f"Stack trace: {traceback.format_exc()}")
+            await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בקביעת הפגישה.")
+
+    def create_initial_record(self, chat_id: str, sender_name: str, survey: SurveyDefinition) -> Optional[str]:
+        """Create initial record when survey starts"""
+        try:
+            logger.info(f"Creating initial record for chat_id: {chat_id}, sender_name: {sender_name}, survey: {survey.name}")
+            record = {
+                "מזהה צ'אט וואטסאפ": chat_id,
+                "שם מלא": sender_name,
+                "סטטוס": "חדש"
+            }
+            logger.debug(f"Record data to be created: {json.dumps(record, ensure_ascii=False)}")
+            
+            table = self.airtable.table(AIRTABLE_BASE_ID, survey.airtable_table_id)
+            response = table.create(record)
+            logger.info(f"Created initial record: {response}")
+            return response["id"]
+        except Exception as e:
+            logger.error(f"Error creating initial record: {e}")
+            if hasattr(e, 'response') and e.response:
+                logger.error(f"Response content: {e.response.text}")
+            return None
 
 def load_surveys_from_json() -> List[SurveyDefinition]:
     """Load all survey definitions from JSON files in the surveys directory"""
