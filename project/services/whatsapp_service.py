@@ -14,7 +14,7 @@ import traceback
 import time
 from dotenv import load_dotenv
 import re
-from .calendar_service import CalendarService
+from .calendar_service import CalendarService, TimeSlot
 from pyairtable import Api
 
 load_dotenv()
@@ -1028,15 +1028,28 @@ class WhatsAppService:
             # Convert selected time string to datetime
             hour, minute = map(int, selected_time_str.split(':'))
             selected_date = scheduler_state['selected_date']
-            selected_slot = selected_date.replace(hour=hour, minute=minute)
             
-            # Verify slot is still available
+            # Create TimeSlot object for comparison
+            selected_slot = TimeSlot(
+                start_time=selected_date.replace(hour=hour, minute=minute),
+                end_time=selected_date.replace(hour=hour, minute=minute) + timedelta(minutes=scheduler_state['calendar_settings'].get('slot_duration_minutes', 30))
+            )
+            
+            # Get available slots for selected date
             available_slots = self.calendar_manager.get_available_slots(
                 scheduler_state['calendar_settings'],
                 selected_date
             )
             
-            if selected_slot not in available_slots:
+            # Check if selected slot matches any available slot
+            slot_is_available = False
+            for slot in available_slots:
+                if slot.start_time.hour == hour and slot.start_time.minute == minute:
+                    slot_is_available = True
+                    selected_slot = slot  # Use the actual slot from available slots
+                    break
+            
+            if not slot_is_available:
                 await self.send_message_with_retry(
                     chat_id,
                     "מצטערים, השעה שנבחרה אינה זמינה יותר. אנא בחר שעה אחרת."
@@ -1110,6 +1123,7 @@ class WhatsAppService:
             
         except Exception as e:
             logger.error(f"Error in handle_meeting_time_selection: {str(e)}")
+            logger.error(f"Stack trace: {traceback.format_exc()}")
             await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בקביעת הפגישה.")
 
     def create_initial_record(self, chat_id: str, sender_name: str, survey: SurveyDefinition) -> Optional[str]:
