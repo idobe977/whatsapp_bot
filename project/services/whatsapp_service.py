@@ -10,6 +10,15 @@ import os
 import glob
 from datetime import datetime
 import google.generativeai as genai
+import traceback
+import time
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# קבל את המשתנה הרצוי
+AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
+
 
 # Initialize Gemini
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
@@ -52,44 +61,104 @@ class WhatsAppService:
         return surveys
 
     async def handle_text_message(self, chat_id: str, text: str, sender_name: str = "") -> None:
-        """Handle incoming text message and check for survey triggers"""
-        logger.info(f"Processing text message from {chat_id} (sender: {sender_name})")
-        logger.debug(f"Message content: {text[:100]}...")  # Log first 100 chars
-        
-        # Check for trigger phrases in all surveys
-        for survey in self.surveys:
-            logger.debug(f"Checking triggers for survey: {survey.name}")
+        """Handle incoming text messages"""
+        try:
+            logger.info(f"Processing text message from {chat_id} (sender: {sender_name})")
+            logger.debug(f"Message content: {text[:100]}...")  # Log first 100 chars
             
-            for trigger in survey.trigger_phrases:
-                if trigger.lower() in text.lower():
-                    logger.info(f"Found trigger phrase '{trigger}' for survey: {survey.name}")
-                    
-                    # Send welcome message
-                    welcome_msg = survey.messages.get('welcome', "ברוכים הבאים לשאלון!")
-                    logger.info(f"Sending welcome message to {chat_id}")
-                    await self.send_message(chat_id, welcome_msg)
-                    
-                    # Send first question
-                    if survey.questions:
-                        first_question = survey.questions[0]
-                        logger.info(f"Sending first question to {chat_id}")
+            # First check if user is in middle of a survey
+            if chat_id in self.survey_state:
+                state = self.survey_state[chat_id]
+                # Process as answer to current question
+                await self.process_survey_answer(chat_id, {"type": "text", "content": text})
+                return
+
+            # If not in survey, check for trigger phrase
+            for survey in self.surveys:
+                logger.debug(f"Checking triggers for survey: {survey.name}")
+                
+                for trigger in survey.trigger_phrases:
+                    if trigger.lower() in text.lower():
+                        logger.info(f"Found trigger phrase '{trigger}' for survey: {survey.name}")
                         
-                        if first_question.get('type') == 'poll':
-                            logger.info("Question type: poll")
-                            await self.send_poll(chat_id, first_question)
+                        # Create initial record in Airtable
+                        record_id = self.create_initial_record(chat_id, sender_name, survey)
+                        if record_id:
+                            # Initialize survey state
+                            self.survey_state[chat_id] = {
+                                "current_question": 0,
+                                "answers": {},
+                                "record_id": record_id,
+                                "survey": survey,
+                                "last_activity": datetime.now()
+                            }
+                            
+                            # Send welcome message
+                            await self.send_message_with_retry(chat_id, survey.messages["welcome"])
+                            await asyncio.sleep(1.5)  # Add a small delay between messages
+                            
+                            # Send first question
+                            await self.send_next_question(chat_id)
                         else:
-                            logger.info("Question type: text")
-                            await self.send_message(chat_id, first_question['text'])
-                    
-                    return  # Exit after finding first matching trigger
-        
-        logger.info(f"No trigger phrases found in message from {chat_id}")
+                            await self.send_message_with_retry(
+                                chat_id, 
+                                "מצטערים, הייתה שגיאה בהתחלת השאלון. נא לנסות שוב."
+                            )
+                        return
+            
+            logger.info(f"No trigger phrases found in message from {chat_id}")
+            
+        except Exception as e:
+            logger.error(f"Error handling text message: {str(e)}")
+            await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד ההודעה. נא לנסות שוב.")
 
     async def handle_voice_message(self, chat_id: str, voice_url: str) -> None:
-        """Handle incoming voice message"""
-        logger.info(f"Processing voice message from {chat_id}")
-        logger.info("Voice message handling not implemented yet")
-        await self.send_message(chat_id, "מצטערים, אך כרגע איננו תומכים בהודעות קוליות. אנא שלח/י הודעת טקסט.")
+        """Handle incoming voice messages"""
+        if chat_id not in self.survey_state:
+            return
+
+        try:
+            state = self.survey_state[chat_id]
+            state['last_activity'] = datetime.now()
+            survey = state["survey"]
+            current_question = survey.questions[state["current_question"]]
+            question_id = current_question["id"]
+
+            # Do the transcription
+            transcribed_text = await self.transcribe_voice(voice_url)
+            if not transcribed_text or transcribed_text in ["שגיאה בהורדת הקובץ הקולי", "שגיאה בתהליך התמלול"]:
+                await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בתמלול ההקלטה. נא לנסות שוב.")
+                return
+            
+            # Save to Airtable
+            update_data = {
+                current_question["id"]: transcribed_text,
+                "סטטוס": "בטיפול"
+            }
+            
+            try:
+                if await self.update_airtable_record(state["record_id"], update_data, survey):
+                    logger.info(f"Saved transcription for question {current_question['id']}")
+                    
+                    # Move to next question without generating reflection here
+                    # (reflection will be generated in process_survey_answer)
+                    await self.process_survey_answer(chat_id, {
+                        "type": "voice",
+                        "content": transcribed_text,
+                        "original_url": voice_url,
+                        "is_final": True
+                    })
+                else:
+                    logger.error("Failed to save transcription to Airtable")
+                    await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בשמירת התשובה. נא לנסות שוב.")
+            except Exception as airtable_error:
+                logger.error(f"Airtable error: {str(airtable_error)}")
+                await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בשמירת התשובה באירטייבל. נא לנסות שוב.")
+
+        except Exception as e:
+            logger.error(f"Error handling voice message: {str(e)}")
+            logger.error(f"Stack trace: {traceback.format_exc()}")
+            await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד ההודעה הקולית. נא לנסות שוב.")
 
     async def handle_poll_response(self, chat_id: str, poll_data: Dict) -> None:
         """Handle poll response"""
@@ -260,13 +329,21 @@ class WhatsAppService:
             return "שגיאה בתהליך התמלול"
 
     async def generate_response_reflection(self, question: str, answer: str, survey: SurveyDefinition, question_data: Dict) -> Optional[str]:
-        """Generate a reflective response based on the user's answer"""
+        """Generate a reflective response based on the user's answer with caching"""
         try:
             # Check if reflection is enabled for this question
             reflection_config = question_data.get('reflection', {"type": "none", "enabled": False})
             if not reflection_config["enabled"] or reflection_config["type"] == "none":
                 return None
 
+            # Create a cache key from question and answer
+            cache_key = f"{question}:{answer}"
+            
+            # Check cache first
+            if cache_key in self.reflection_cache:
+                logger.info("Using cached reflection response")
+                return self.reflection_cache[cache_key]
+            
             # Get reflection prompt from survey configuration
             reflection_type = reflection_config["type"]
             if reflection_type not in survey.ai_prompts["reflections"]:
@@ -299,8 +376,16 @@ class WhatsAppService:
             """
             
             response = model.generate_content(prompt)
-            return response.text.strip()
+            reflection = response.text.strip()
             
+            # Cache the response
+            self.reflection_cache[cache_key] = reflection
+            
+            # Limit cache size to prevent memory issues
+            if len(self.reflection_cache) > 1000:  # Keep last 1000 responses
+                self.reflection_cache.pop(next(iter(self.reflection_cache)))
+                
+            return reflection
         except Exception as e:
             logger.error(f"Error generating reflection: {str(e)}")
             return None
@@ -375,43 +460,142 @@ class WhatsAppService:
             logger.info(f"Processing survey answer for chat_id: {chat_id}")
             
             state = self.survey_state.get(chat_id)
-            if not state:
-                logger.error(f"No survey state found for chat_id: {chat_id}")
+            if not state or "record_id" not in state:
+                logger.error(f"No valid state found for chat_id: {chat_id}")
                 return
 
             state['last_activity'] = datetime.now()
             survey = state["survey"]
             current_question = survey.questions[state["current_question"]]
+            question_id = current_question["id"]
             
             # Save answer to state
             if "answers" not in state:
                 state["answers"] = {}
-            state["answers"][current_question["id"]] = answer["content"]
             
-            # Generate reflection if enabled
-            reflection = await self.generate_response_reflection(
-                current_question["text"],
-                answer["content"],
-                survey,
-                {"chat_id": chat_id, **current_question}
-            )
+            try:
+                # Format answer based on question type
+                formatted_answer = answer["content"]
+                if current_question["type"] == "poll":
+                    formatted_answer = answer["content"].split(", ")
+                    # For poll answers, strip emojis and clean text
+                    formatted_answer = [opt.split('⚡')[0].split('⏱️')[0].split('⏰')[0].strip() for opt in formatted_answer]
+                    formatted_answer = formatted_answer[0] if formatted_answer else ""
+                else:
+                    formatted_answer = self.clean_text_for_airtable(formatted_answer)
+                
+                state["answers"][question_id] = formatted_answer
+                logger.debug(f"Updated state answers: {json.dumps(state['answers'], ensure_ascii=False)}")
+            except Exception as e:
+                logger.error(f"Error formatting answer: {str(e)}")
+                await self.send_message_with_retry(
+                    chat_id, 
+                    survey.messages["error"]
+                )
+                return
+            
+            # Prepare Airtable update data
+            update_data = {question_id: formatted_answer}
+            if state["current_question"] > 0:
+                update_data["סטטוס"] = "בטיפול"
+            
+            # Run tasks concurrently
+            tasks = [
+                self.generate_response_reflection(
+                    current_question["text"], 
+                    answer["content"], 
+                    survey, 
+                    {**current_question, "chat_id": chat_id}
+                ),
+                self.update_airtable_record(state["record_id"], update_data, survey)
+            ]
+            reflection, airtable_success = await asyncio.gather(*tasks)
             
             if reflection:
-                await self.send_message(chat_id, reflection)
-                await asyncio.sleep(1.5)  # Small delay between messages
+                await self.send_message_with_retry(chat_id, reflection)
+                await asyncio.sleep(1.5)
             
-            # Move to next question
-            state["current_question"] += 1
-            
-            # Check if survey is complete
-            if state["current_question"] >= len(survey.questions):
-                await self.finish_survey(chat_id)
-            else:
-                await self.send_next_question(chat_id)
+            if airtable_success and answer.get("is_final", True):
+                # Handle flow logic
+                next_question_id = None
+                custom_message = None
                 
+                if "flow" in current_question:
+                    flow = current_question["flow"]
+                    user_answer = answer["content"]
+                    
+                    # For poll questions, get the full answer text
+                    if current_question["type"] == "poll":
+                        user_answer = user_answer.split(", ")[0]  # Get first selected option
+                    
+                    # Check if conditions
+                    if "if" in flow:
+                        if_condition = flow["if"]
+                        if user_answer == if_condition["answer"]:
+                            next_question_id = if_condition["then"].get("goto")
+                            custom_message = if_condition["then"].get("say")
+                        elif "else_if" in flow:
+                            # Handle else_if as a list of conditions
+                            if isinstance(flow["else_if"], list):
+                                for else_if_condition in flow["else_if"]:
+                                    if user_answer == else_if_condition["answer"]:
+                                        next_question_id = else_if_condition["then"].get("goto")
+                                        custom_message = else_if_condition["then"].get("say")
+                                        break
+                            # Handle else_if as a single condition
+                            elif isinstance(flow["else_if"], dict):
+                                else_if_condition = flow["else_if"]
+                                if user_answer == else_if_condition["answer"]:
+                                    next_question_id = else_if_condition["then"].get("goto")
+                                    custom_message = else_if_condition["then"].get("say")
+                    # Check for simple then flow
+                    elif "then" in flow:
+                        next_question_id = flow["then"].get("goto")
+                        custom_message = flow["then"].get("say")
+                
+                # Send custom message if exists
+                if custom_message:
+                    await self.send_message_with_retry(chat_id, custom_message)
+                    await asyncio.sleep(1.5)
+                
+                # Find next question index
+                if next_question_id:
+                    next_index = next((i for i, q in enumerate(survey.questions) if q["id"] == next_question_id), None)
+                    if next_index is not None:
+                        state["current_question"] = next_index
+                    else:
+                        state["current_question"] += 1
+                else:
+                    state["current_question"] += 1
+                
+                state.pop("selected_options", None)
+                state.pop("last_poll_response", None)
+                
+                if state["current_question"] >= len(survey.questions):
+                    asyncio.create_task(
+                        self.update_airtable_record(
+                            state["record_id"], 
+                            {"סטטוס": "הושלם"}, 
+                            survey
+                        )
+                    )
+                    await self.finish_survey(chat_id)
+                else:
+                    await self.send_next_question(chat_id)
+                    
+            elif not airtable_success:
+                await self.send_message_with_retry(
+                    chat_id, 
+                    survey.messages["error"]
+                )
+            
         except Exception as e:
-            logger.error(f"Error processing survey answer: {str(e)}")
-            await self.send_message(chat_id, "מצטערים, הייתה שגיאה בעיבוד התשובה. נא לנסות שוב.")
+            logger.error(f"Error processing answer: {str(e)}")
+            logger.error(f"Stack trace: {traceback.format_exc()}")
+            await self.send_message_with_retry(
+                chat_id, 
+                survey.messages["error"]
+            )
 
     async def finish_survey(self, chat_id: str) -> None:
         """Finish the survey and send a summary"""
@@ -454,6 +638,101 @@ class WhatsAppService:
                 await self.send_message(chat_id, question["text"])
         else:
             await self.finish_survey(chat_id)
+
+    def get_cached_airtable_record(self, record_id: str, table_id: str) -> Optional[Dict]:
+        """Get record from cache if available and not expired"""
+        cache_key = f"{table_id}:{record_id}"
+        cached_data = self.airtable_cache.get(cache_key)
+        if cached_data:
+            timestamp, record = cached_data
+            if time.time() - timestamp < self.airtable_cache_timeout:
+                return record
+            else:
+                del self.airtable_cache[cache_key]
+        return None
+
+    def cache_airtable_record(self, record_id: str, table_id: str, record: Dict) -> None:
+        """Cache Airtable record with timestamp"""
+        cache_key = f"{table_id}:{record_id}"
+        self.airtable_cache[cache_key] = (time.time(), record)
+        
+        # Cleanup old cache entries
+        current_time = time.time()
+        expired_keys = [k for k, v in self.airtable_cache.items() 
+                       if current_time - v[0] > self.airtable_cache_timeout]
+        for k in expired_keys:
+            del self.airtable_cache[k]
+
+    async def update_airtable_record(self, record_id: str, data: Dict, survey: SurveyDefinition) -> bool:
+        """Update Airtable record asynchronously with batching support."""
+        try:
+            # Get cached record if available
+            cached_record = self.get_cached_airtable_record(record_id, survey.airtable_table_id)
+            if cached_record:
+                # Merge new data with cached record
+                cached_record.update(data)
+                self.cache_airtable_record(record_id, survey.airtable_table_id, cached_record)
+            
+            # Add to batch queue
+            if not hasattr(self, '_airtable_batch_queue'):
+                self._airtable_batch_queue = []
+            
+            self._airtable_batch_queue.append({
+                'table_id': survey.airtable_table_id,
+                'record_id': record_id,
+                'data': data
+            })
+            
+            # Process batch if queue is full or immediate update is needed
+            if len(self._airtable_batch_queue) >= 10:  # Process in batches of 10
+                await self._process_airtable_batch()
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating Airtable record: {e}")
+            return False
+
+    async def _process_airtable_batch(self) -> None:
+        """Process batched Airtable updates."""
+        if not self._airtable_batch_queue:
+            return
+            
+        try:
+            # Group updates by table
+            updates_by_table = {}
+            for update in self._airtable_batch_queue:
+                table_id = update['table_id']
+                if table_id not in updates_by_table:
+                    updates_by_table[table_id] = []
+                updates_by_table[table_id].append({
+                    'id': update['record_id'],
+                    'fields': update['data']
+                })
+            
+            # Process each table's updates
+            for table_id, records in updates_by_table.items():
+                table = self.airtable.table(AIRTABLE_BASE_ID, table_id)
+                table.batch_update(records)
+            
+            # Clear the queue
+            self._airtable_batch_queue.clear()
+            
+        except Exception as e:
+            logger.error(f"Error processing Airtable batch: {e}")
+
+    def clean_text_for_airtable(self, text: str) -> str:
+        """Clean text by replacing special characters for Airtable compatibility"""
+        if not text:
+            return text
+            
+        # Replace various types of dashes with regular dash
+        text = text.replace('–', '-').replace('—', '-').replace('‒', '-').replace('―', '-')
+        
+        # Remove multiple spaces and trim
+        text = ' '.join(text.split())
+        
+        return text.strip()
 
 def load_surveys_from_json() -> List[SurveyDefinition]:
     """Load all survey definitions from JSON files in the surveys directory"""
