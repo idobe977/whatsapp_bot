@@ -13,16 +13,16 @@
   },
   "calendar_settings": {
     "calendar_id": "idobe97@gmail.com",
+    "slot_duration_minutes": 30,
+    "buffer_between_meetings": 30,
     "working_hours": {
-      "sunday": {"start": "09:00", "end": "17:00"},
-      "monday": {"start": "09:00", "end": "17:00"},
-      "tuesday": {"start": "09:00", "end": "17:00"},
-      "wednesday": {"start": "09:00", "end": "17:00"},
-      "thursday": {"start": "09:00", "end": "17:00"}
+      "sunday": {"start": "09:00", "end": "14:00"},
+      "monday": {"start": "09:00", "end": "14:00"},
+      "tuesday": {"start": "09:00", "end": "11:00"},
+      "wednesday": {"start": "09:00", "end": "14:00"},
+      "thursday": {"start": "09:00", "end": "11:00"}
     },
-    "meeting_duration": 45,
-    "buffer_between_meetings": 15,
-    "days_to_show": 7,
+    "weekend_days": [5, 6],
     "timezone": "Asia/Jerusalem",
     "meeting_title_template": "פגישת ייעוץ עם {{שם מלא}}",
     "meeting_description_template": "נקבע דרך בוט WhatsApp\nטלפון: {{phone}}\nנושא: {{סיבת התנגדות}}"
