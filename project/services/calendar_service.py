@@ -22,6 +22,15 @@ class CalendarService:
         self.service = None
         self.timezone = pytz.timezone('Asia/Jerusalem')
         self.setup_service()
+        self.day_name_map = {
+            'Sunday': 'ראשון',
+            'Monday': 'שני',
+            'Tuesday': 'שלישי',
+            'Wednesday': 'רביעי',
+            'Thursday': 'חמישי',
+            'Friday': 'שישי',
+            'Saturday': 'שבת'
+        }
 
     def setup_service(self) -> None:
         """Initialize Google Calendar service"""
@@ -60,16 +69,26 @@ class CalendarService:
             
         return key
 
+    def _format_date_for_display(self, date: datetime) -> str:
+        """Format date as 'יום שלישי 13/2'."""
+        # Get Hebrew day name
+        day_name = self.day_name_map[date.strftime('%A')]
+        
+        # Format as D/M
+        date_str = date.strftime('%-d/%-m')  # Use - to remove leading zeros
+        
+        return f'יום {day_name} {date_str}'
+
     def get_available_slots(self, settings: Dict, date: datetime) -> List[TimeSlot]:
         """Get available time slots for a given date"""
         try:
             # Get working hours with default values
             default_working_hours = {
-                'sunday': {'start': '09:00', 'end': '17:00'},
-                'monday': {'start': '09:00', 'end': '17:00'},
-                'tuesday': {'start': '09:00', 'end': '17:00'},
-                'wednesday': {'start': '09:00', 'end': '17:00'},
-                'thursday': {'start': '09:00', 'end': '17:00'}
+                'sunday': {'start': '09:00', 'end': '14:00'},
+                'monday': {'start': '09:00', 'end': '14:00'},
+                'tuesday': {'start': '09:00', 'end': '11:00'},
+                'wednesday': {'start': '09:00', 'end': '14:00'},
+                'thursday': {'start': '09:00', 'end': '11:00'}
             }
             working_hours = settings.get('working_hours', default_working_hours)
             
