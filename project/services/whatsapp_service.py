@@ -340,7 +340,7 @@ class WhatsAppService:
         ) as session:
             yield session
 
-    async def send_message(self, chat_id: str, message: str) -> Dict:
+    async def send_message_with_retry(self, chat_id: str, message: str) -> Dict:
         """Send a message with retry mechanism"""
         retries = 0
         last_error = None
@@ -446,7 +446,7 @@ class WhatsAppService:
     async def send_messages_batch(self, messages: List[Dict]) -> List[Dict]:
         """Send multiple messages in batch"""
         async def send_single(msg: Dict) -> Dict:
-            return await self.send_message(msg['chat_id'], msg['text'])
+            return await self.send_message_with_retry(msg['chat_id'], msg['text'])
         
         logger.info(f"Sending batch of {len(messages)} messages")
         tasks = []
@@ -599,7 +599,7 @@ class WhatsAppService:
                 for chat_id in to_remove:
                     state = self.survey_state.pop(chat_id)
                     logger.info(f"Cleaned up stale survey state for {chat_id}")
-                    await self.send_message(chat_id, "השאלון בוטל עקב חוסר פעילות. אנא התחל מחדש.")
+                    await self.send_message_with_retry(chat_id, "השאלון בוטל עקב חוסר פעילות. אנא התחל מחדש.")
                 
                 # Wait for 5 minutes before next cleanup
                 await asyncio.sleep(300)
@@ -762,18 +762,18 @@ class WhatsAppService:
             # Generate and send summary if configured
             if survey.messages["completion"].get("should_generate_summary", True):
                 summary = self.generate_summary(state["answers"], survey)
-                await self.send_message(chat_id, f"*סיכום השאלון שלך:*\n{summary}")
+                await self.send_message_with_retry(chat_id, f"*סיכום השאלון שלך:*\n{summary}")
                 await asyncio.sleep(1.5)
 
             # Send completion message
-            await self.send_message(chat_id, survey.messages["completion"]["text"])
+            await self.send_message_with_retry(chat_id, survey.messages["completion"]["text"])
             
             # Clean up state
             del self.survey_state[chat_id]
             
         except Exception as e:
             logger.error(f"Error finishing survey: {str(e)}")
-            await self.send_message(chat_id, "מצטערים, הייתה שגיאה בסיום השאלון.")
+            await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בסיום השאלון.")
 
     async def send_next_question(self, chat_id: str) -> None:
         """Send the next survey question"""
@@ -788,7 +788,7 @@ class WhatsAppService:
             if question["type"] == "poll":
                 await self.send_poll(chat_id, question)
             else:
-                await self.send_message(chat_id, question["text"])
+                await self.send_message_with_retry(chat_id, question["text"])
         else:
             await self.finish_survey(chat_id)
 
