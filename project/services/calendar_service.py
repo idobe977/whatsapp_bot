@@ -212,6 +212,9 @@ class CalendarService:
             logger.info(f"Successfully created calendar event: {event.get('id')}")
             
             # Generate ICS file
+            # Pre-process description to handle newlines
+            escaped_description = description.replace('\n', '\\n')
+            
             ics_lines = [
                 "BEGIN:VCALENDAR",
                 "VERSION:2.0",
@@ -224,7 +227,7 @@ class CalendarService:
                 f"DTSTART;TZID={self.timezone.zone}:{slot.start_time.strftime('%Y%m%dT%H%M%S')}",
                 f"DTEND;TZID={self.timezone.zone}:{slot.end_time.strftime('%Y%m%dT%H%M%S')}",
                 f"SUMMARY:{title}",
-                f"DESCRIPTION:{description.replace('\n', '\\n')}",
+                f"DESCRIPTION:{escaped_description}",
                 "SEQUENCE:0",
                 "STATUS:CONFIRMED",
                 "TRANSP:OPAQUE",
