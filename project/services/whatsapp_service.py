@@ -1076,6 +1076,21 @@ class WhatsAppService:
                 formatted_date = selected_date.strftime("%d/%m/%Y")
                 formatted_time = selected_time_str
                 
+                # Save meeting details to Airtable
+                try:
+                    meetings_table = self.airtable.table(AIRTABLE_BASE_ID, "tblABM0PSF7rKoAWh")
+                    meeting_data = {
+                        "שם מלא": attendee_data['שם מלא'],
+                        "סטטוס פגישה": "חדש",
+                        "מזהה צ'אט וואטסאפ": chat_id,
+                        "תאריך פגישה": f"{formatted_date} {start_time}",
+                        "סוג פגישה": state['answers'].get('סוג הפגישה', '')
+                    }
+                    meetings_table.create(meeting_data)
+                    logger.info(f"Created meeting record in Airtable for {attendee_data['שם מלא']}")
+                except Exception as e:
+                    logger.error(f"Error saving meeting to Airtable: {str(e)}")
+                
                 # Send confirmation messages
                 await self.send_message_with_retry(
                     chat_id, 
