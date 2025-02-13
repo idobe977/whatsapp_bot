@@ -113,12 +113,13 @@ class CalendarService:
             now = datetime.now(self.timezone)
             min_start_time = now + timedelta(hours=2)
             
-            # If minimum start time is after today's end time, return empty list
-            if min_start_time.date() == date.date() and min_start_time >= day_end:
+            # If the date is before today or if it's today but all slots would be in the past, return empty list
+            if date.date() < now.date() or (date.date() == now.date() and min_start_time >= day_end):
+                logger.debug(f"Date {date.date()} is in the past or no future slots available")
                 return []
             
             # Adjust day_start if minimum start time is later
-            if min_start_time.date() == date.date() and min_start_time > day_start:
+            if date.date() == now.date() and min_start_time > day_start:
                 day_start = min_start_time
             
             # Get existing events
@@ -146,10 +147,14 @@ class CalendarService:
                     event_start = datetime.fromisoformat(event['start'].get('dateTime', event['start'].get('date')))
                     event_end = datetime.fromisoformat(event['end'].get('dateTime', event['end'].get('date')))
                     
-                    if (current_slot_start < event_end and slot_end > event_start):
+                    # Check for overlap including buffer time
+                    slot_start_with_buffer = current_slot_start - buffer_time
+                    slot_end_with_buffer = slot_end + buffer_time
+                    
+                    if (slot_start_with_buffer < event_end and slot_end_with_buffer > event_start):
                         is_available = False
-                        # Jump to the end of this event for next slot
-                        current_slot_start = event_end
+                        # Jump to the end of this event plus buffer for next slot
+                        current_slot_start = event_end + buffer_time
                         break
                 
                 if is_available:
@@ -176,6 +181,9 @@ class CalendarService:
             for key, value in attendee_data.items():
                 title = title.replace(f"{{{{שם מלא}}}}", attendee_data.get('שם מלא', ''))
                 description = description.replace(f"{{{{phone}}}}", attendee_data.get('phone', ''))
+                # Add support for meeting type
+                if key == 'סוג פגישה':
+                    description = description.replace("{{סוג הפגישה}}", value)
             
             event = {
                 'summary': title,
