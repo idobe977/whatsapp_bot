@@ -895,12 +895,11 @@ class WhatsAppService:
             available_dates = []
             current_date = datetime.now()
             days_checked = 0
-            days_to_show = calendar_settings.get('days_to_show', 7)  # Default to 14 days if not specified
+            days_to_show = calendar_settings.get('days_to_show', 7)
             weekend_days = calendar_settings.get('weekend_days', [6])  # Only Saturday by default
             
-            while len(available_dates) < days_to_show and days_checked < days_to_show * 2:  # Check up to double the days to find enough working days
+            while len(available_dates) < days_to_show and days_checked < days_to_show * 2:
                 if current_date.weekday() not in weekend_days:
-                    # Only add days that have available slots
                     slots = self.calendar_manager.get_available_slots(calendar_settings, current_date)
                     if slots:
                         available_dates.append(current_date.date())
@@ -926,20 +925,11 @@ class WhatsAppService:
                           for d in available_dates]
             
             # Send poll for date selection
-            await self.send_message_with_retry(chat_id, "בחר/י את היום המועדף לפגישה:")
-            await asyncio.sleep(1)
-            
-            poll_response = await self.send_poll(chat_id, {
-                'text': f"ימים פנויים ל-{days_to_show} הימים הקרובים 📅",
+            await self.send_poll(chat_id, {
+                'text': "באיזה יום תרצה/י לקבוע את הפגישה? 📅",
                 'options': date_options,
-                'type': 'poll',
-                'multipleAnswers': False
+                'type': 'poll'
             })
-            
-            if "error" in poll_response:
-                logger.error(f"Error sending poll: {poll_response['error']}")
-                await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בשליחת האפשרויות לבחירה.")
-                return
             
         except Exception as e:
             logger.error(f"Error in handle_meeting_scheduler: {str(e)}")
@@ -955,6 +945,17 @@ class WhatsAppService:
             if not scheduler_state:
                 logger.error("No meeting scheduler state found")
                 return
+            
+            # Parse day name and date from selected format
+            day_name_map = {
+                'ראשון': 'Sunday',
+                'שני': 'Monday',
+                'שלישי': 'Tuesday',
+                'רביעי': 'Wednesday',
+                'חמישי': 'Thursday',
+                'שישי': 'Friday',
+                'שבת': 'Saturday'
+            }
             
             # Extract date from format "יום שלישי 13/2"
             date_parts = selected_date_str.split(' ')
@@ -994,21 +995,14 @@ class WhatsAppService:
             scheduler_state['available_slots'] = slots
             
             # Format time slots for better readability
-            time_options = []
-            for slot in slots:
-                # Format time as "HH:MM"
-                time_str = f"{slot.start_time.strftime('%H:%M')}"
-                time_options.append(time_str)
+            time_options = [str(slot) for slot in slots]
+            time_options.append("בחירת יום אחר")  # Add option to select different day
             
-            # Send message and poll for time selection
-            await self.send_message_with_retry(chat_id, f"בחר/י שעה מועדפת ליום {selected_date_str}:")
-            await asyncio.sleep(1)
-            
+            # Send poll for time selection
             await self.send_poll(chat_id, {
-                'text': "שעות פנויות 🕒",
+                'text': f"באיזו שעה תרצה/י לקבוע את הפגישה ב{selected_date_str}? ⏰",
                 'options': time_options,
-                'type': 'poll',
-                'multipleAnswers': False
+                'type': 'poll'
             })
             
         except Exception as e:
@@ -1023,6 +1017,11 @@ class WhatsAppService:
             
             if not scheduler_state:
                 logger.error("No meeting scheduler state found")
+                return
+            
+            # Check if user wants to select a different day
+            if selected_time_str == "בחירת יום אחר":
+                await self.handle_meeting_scheduler(chat_id, scheduler_state['question'])
                 return
             
             # Convert selected time string to datetime
