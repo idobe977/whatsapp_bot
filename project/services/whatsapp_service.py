@@ -1024,8 +1024,10 @@ class WhatsAppService:
                 await self.handle_meeting_scheduler(chat_id, scheduler_state['question'])
                 return
             
-            # Convert selected time string to datetime
-            hour, minute = map(int, selected_time_str.split(':'))
+            # Parse time from format "HH:MM - HH:MM"
+            start_time = selected_time_str.split(' - ')[0]
+            hour, minute = map(int, start_time.split(':'))
+            
             selected_date = scheduler_state['selected_date']
             
             # Create TimeSlot object for comparison
