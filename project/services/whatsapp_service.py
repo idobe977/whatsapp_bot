@@ -891,18 +891,16 @@ class WhatsAppService:
                 await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בתהליך קביעת הפגישה.")
                 return
             
-            # Get next N days (excluding weekends if specified)
+            # Get next N days based only on working hours availability
             available_dates = []
             current_date = datetime.now()
             days_checked = 0
             days_to_show = calendar_settings.get('days_to_show', 7)
-            weekend_days = calendar_settings.get('weekend_days', [3])  # Only Saturday by default
             
             while len(available_dates) < days_to_show and days_checked < days_to_show * 2:
-                if current_date.weekday() not in weekend_days:
-                    slots = self.calendar_manager.get_available_slots(calendar_settings, current_date)
-                    if slots:
-                        available_dates.append(current_date.date())
+                slots = self.calendar_manager.get_available_slots(calendar_settings, current_date)
+                if slots:
+                    available_dates.append(current_date.date())
                 current_date += timedelta(days=1)
                 days_checked += 1
             
@@ -1020,7 +1018,7 @@ class WhatsAppService:
                 return
             
             # Check if user wants to select a different day
-            if selected_time_str == "בחירת יום אחר":
+            if selected_time_str == "בעצם אני רוצה לבדוק יום אחר😅":
                 await self.handle_meeting_scheduler(chat_id, scheduler_state['question'])
                 return
             
