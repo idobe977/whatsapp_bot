@@ -136,12 +136,16 @@ class CalendarService:
                     
                     if (current_slot_start < event_end and slot_end > event_start):
                         is_available = False
+                        # Jump to the end of this event for next slot
+                        current_slot_start = event_end
                         break
                 
                 if is_available:
                     available_slots.append(TimeSlot(current_slot_start, slot_end))
-                
-                current_slot_start = slot_end + buffer_time
+                    current_slot_start = slot_end + buffer_time
+                elif not is_available and current_slot_start == day_start:
+                    # If first slot is not available, add buffer time
+                    current_slot_start += buffer_time
             
             return available_slots
             
