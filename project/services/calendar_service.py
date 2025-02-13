@@ -179,11 +179,16 @@ class CalendarService:
             
             # Replace placeholders in title and description
             for key, value in attendee_data.items():
-                title = title.replace(f"{{{{שם מלא}}}}", attendee_data.get('שם מלא', ''))
-                description = description.replace(f"{{{{phone}}}}", attendee_data.get('phone', ''))
-                # Add support for meeting type
-                if key == 'סוג פגישה':
+                # Handle both field name variations
+                if key in ['סוג פגישה', 'סוג הפגישה']:
                     description = description.replace("{{סוג הפגישה}}", value)
+                    description = description.replace("{{סוג פגישה}}", value)
+                else:
+                    description = description.replace(f"{{{{{key}}}}}", str(value))
+            
+            # Format meeting date for Airtable
+            meeting_date = slot.start_time.strftime("%Y-%m-%d %H:%M")
+            attendee_data['תאריך פגישה'] = meeting_date
             
             event = {
                 'summary': title,
