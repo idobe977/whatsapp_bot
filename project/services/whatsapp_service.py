@@ -1072,18 +1072,21 @@ class WhatsAppService:
                 # Store event ID in state
                 scheduler_state['event_id'] = result['event_id']
                 
-                # Format date and time for confirmation
-                formatted_date = selected_date.strftime("%d/%m/%Y")
+                # Format date and time for display
+                formatted_date_display = selected_date.strftime("%d/%m/%Y")
                 formatted_time = selected_time_str
+                
+                # Format date for Airtable (YYYY-MM-DD HH:mm)
+                formatted_date_airtable = selected_slot.start_time.strftime("%Y-%m-%d %H:%M")
                 
                 # Save meeting details to Airtable
                 try:
                     meetings_table = self.airtable.table(AIRTABLE_BASE_ID, "tblABM0PSF7rKoAWh")
                     meeting_data = {
                         "שם מלא": attendee_data['שם מלא'],
-                        "סטטוס": "חדש",
+                        "סטטוס פגישה": "חדש",
                         "מזהה צ'אט וואטסאפ": chat_id,
-                        "תאריך פגישה": f"{formatted_date} {start_time}",
+                        "תאריך פגישה": formatted_date_airtable,
                         "סוג פגישה": state['answers'].get('סוג הפגישה', '')
                     }
                     meetings_table.create(meeting_data)
@@ -1095,7 +1098,7 @@ class WhatsAppService:
                 await self.send_message_with_retry(
                     chat_id, 
                     f"*הפגישה נקבעה בהצלחה! 🎉*\n\n"
-                    f"📅 תאריך: {formatted_date}\n"
+                    f"📅 תאריך: {formatted_date_display}\n"
                     f"🕒 שעה: {formatted_time}\n\n"
                     f"אשלח לך כעת קובץ להוספת הפגישה ליומן שלך:"
                 )
