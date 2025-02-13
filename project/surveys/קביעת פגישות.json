@@ -16,15 +16,15 @@
       "wednesday": {"start": "09:00", "end": "14:00"},
       "thursday": {"start": "09:00", "end": "11:00"}
     },
-    "meeting_duration": 30,
+    "slot_duration_minutes": 30,
     "buffer_between_meetings": 30,
     "days_to_show": 7,
     "timezone": "Asia/Jerusalem",
-    "meeting_title_template": "{{סוג הפגישה}} עם {{שם מלא}}",
-    "meeting_description_template": "נקבע דרך בוט WhatsApp\nטלפון: {{phone}}\nנושא: {{סיבת התנגדות}}"
+    "meeting_title_template": "פגישה עם {{שם מלא}}",
+    "meeting_description_template": "מתרגש לקראת הפגישה שלנו!\n\n פרטי הפגישה:\nסוג פגישה: {{סוג הפגישה}}\nקישור לזום: https://us02web.zoom.us/j/2444017318?pwd=akhDNGRKazZFWHJCMWlmYzVOZzd0dz09\nמצפה לראותך! 😊\nעידו\nאוטומטX"
   },
   "messages": {
-    "welcome": "*יאללה, מעולה, נקבע פגישה 🔥",
+    "welcome": "יאללה, מעולה, נקבע פגישה 🔥",
     "completion": {
       "text": "ניפגש!",
       "should_generate_summary": false
@@ -36,7 +36,7 @@
     "reflections": {
       "empathetic": {
         "name": "תגובה רפלקטיבית",
-        "prompt": "צור תגובה אמפתית וקצרה (1-2 משפטים) לתשובת המשתמש. שקף את המסר העיקרי בטון חם, השתמש בשפה חיובית, והתאם לפרספקטיבה שלי כמפתח פתרונות אוטומציה לעסקים (גבר). הוסף אימוג'י במידת הצורך, והימנע מלחזור על דברי המשתמש או להוסיף מידע חדש."
+        "prompt": "לאחר כל תשובה מהלקוח, הגב באופן אישי וחם, התייחס ישירות לתשובתו והשתמש באימוג'ים מתאימים כדי לשמור על שיחה נעימה. שמור על שפה מקצועית, קצרה וברורה, ועבור בצורה חלקה לשאלה הבאה, והתאם לפרספקטיבה שלי כמפתח פתרונות אוטומציה לעסקים (גבר). הימנע מלחזור על דברי המשתמש או להוסיף מידע חדש."
       },
       "professional": {
         "name": "תגובת עידוד",
@@ -51,6 +51,15 @@
   },
   "questions": [
     {
+      "id": "שם מלא",
+      "type": "text",
+      "text": "לפני שנתחיל, *איך אוכל לפנות אליך?* 👋",
+      "reflection": {
+        "type": "empathetic",
+        "enabled": true
+      }
+    },
+    {
       "id": "סוג הפגישה",
       "type": "poll",
       "text": "איזה סוג פגישה אנחנו הולכים לקבוע?🤝 ",
@@ -61,25 +70,16 @@
       ],
       "multipleAnswers": false,
       "reflection": {
-        "type": "professional",
-        "enabled": false
+        "type": "empathetic",
+        "enabled": true
       }
     },
     {
       "id": "קביעת פגישה",
       "type": "meeting_scheduler",
-      "text": "באיזה יום בשבוע הקרוב נוכל להיפגש? 📅",
+      "text": "באיזה יום בשבוע הקרוב יהיה לך נוח להיפגש? 📅",
       "confirmation_message": "מעולה! קבענו פגישה ל-{{meeting_time}} 🎯\nאשלח לך תזכורת יום לפני הפגישה 📱",
       "no_slots_message": "מצטערים, אין זמנים פנויים בשבוע הקרוב. אנא נסה שוב מאוחר יותר או צור קשר ישירות.",
-      "reflection": {
-        "type": "empathetic",
-        "enabled": false
-      }
-    },
-    {
-      "id": "שם מלא",
-      "type": "text",
-      "text": "דבר אחרון, באיזה שם אתה רוצה שאקרא לך?",
       "reflection": {
         "type": "empathetic",
         "enabled": false
