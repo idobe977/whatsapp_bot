@@ -109,6 +109,18 @@ class CalendarService:
             day_start = self.timezone.localize(date.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0))
             day_end = self.timezone.localize(date.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0))
             
+            # Calculate minimum start time (2 hours from now)
+            now = datetime.now(self.timezone)
+            min_start_time = now + timedelta(hours=2)
+            
+            # If minimum start time is after today's end time, return empty list
+            if min_start_time.date() == date.date() and min_start_time >= day_end:
+                return []
+            
+            # Adjust day_start if minimum start time is later
+            if min_start_time.date() == date.date() and min_start_time > day_start:
+                day_start = min_start_time
+            
             # Get existing events
             events_result = self.service.events().list(
                 calendarId=settings.get('calendar_id', 'primary'),
@@ -203,11 +215,18 @@ class CalendarService:
             ics_content = f"""BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//WhatsApp Survey Bot//Calendar Manager//EN
+CALSCALE:GREGORIAN
+METHOD:REQUEST
 BEGIN:VEVENT
+UID:{event.get('id')}
+DTSTAMP:{datetime.now(self.timezone).strftime('%Y%m%dT%H%M%SZ')}
 DTSTART;TZID={self.timezone.zone}:{slot.start_time.strftime('%Y%m%dT%H%M%S')}
 DTEND;TZID={self.timezone.zone}:{slot.end_time.strftime('%Y%m%dT%H%M%S')}
 SUMMARY:{title}
-DESCRIPTION:{description}
+DESCRIPTION:{description.replace('\n', '\\n')}
+SEQUENCE:0
+STATUS:CONFIRMED
+TRANSP:OPAQUE
 BEGIN:VALARM
 ACTION:DISPLAY
 DESCRIPTION:תזכורת לפגישה
