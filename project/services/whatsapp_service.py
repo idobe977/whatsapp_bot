@@ -1081,7 +1081,7 @@ class WhatsAppService:
                     meetings_table = self.airtable.table(AIRTABLE_BASE_ID, "tblABM0PSF7rKoAWh")
                     meeting_data = {
                         "שם מלא": attendee_data['שם מלא'],
-                        "סטטוס פגישה": "חדש",
+                        "סטטוס": "חדש",
                         "מזהה צ'אט וואטסאפ": chat_id,
                         "תאריך פגישה": f"{formatted_date} {start_time}",
                         "סוג פגישה": state['answers'].get('סוג הפגישה', '')
