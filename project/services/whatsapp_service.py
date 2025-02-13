@@ -896,7 +896,7 @@ class WhatsAppService:
             current_date = datetime.now()
             days_checked = 0
             days_to_show = calendar_settings.get('days_to_show', 7)
-            weekend_days = calendar_settings.get('weekend_days', [6])  # Only Saturday by default
+            weekend_days = calendar_settings.get('weekend_days', [3])  # Only Saturday by default
             
             while len(available_dates) < days_to_show and days_checked < days_to_show * 2:
                 if current_date.weekday() not in weekend_days:
@@ -926,7 +926,7 @@ class WhatsAppService:
             
             # Send poll for date selection
             await self.send_poll(chat_id, {
-                'text': "באיזה יום תרצה/י לקבוע את הפגישה? 📅",
+                'text': "באיזה יום נקבע את הפגישה? 📅",
                 'options': date_options,
                 'type': 'poll'
             })
@@ -996,11 +996,11 @@ class WhatsAppService:
             
             # Format time slots for better readability
             time_options = [str(slot) for slot in slots]
-            time_options.append("בחירת יום אחר")  # Add option to select different day
+            time_options.append("בעצם אני רוצה לבדוק יום אחר😅")  # Add option to select different day
             
             # Send poll for time selection
             await self.send_poll(chat_id, {
-                'text': f"באיזו שעה תרצה/י לקבוע את הפגישה ב{selected_date_str}? ⏰",
+                'text': f"באיזו שעה יהיה לך נוח ב{selected_date_str}? ⏰",
                 'options': time_options,
                 'type': 'poll'
             })
@@ -1084,7 +1084,7 @@ class WhatsAppService:
                     f"*הפגישה נקבעה בהצלחה! 🎉*\n\n"
                     f"📅 תאריך: {formatted_date}\n"
                     f"🕒 שעה: {formatted_time}\n\n"
-                    f"אשלח לך כעת קובץ להוספת הפגישה ליומן שלך."
+                    f"אשלח לך כעת קובץ להוספת הפגישה ליומן שלך:"
                 )
                 await asyncio.sleep(1)
                 
@@ -1094,7 +1094,7 @@ class WhatsAppService:
                     
                     form = aiohttp.FormData()
                     form.add_field('chatId', chat_id)
-                    form.add_field('caption', "לחץ על הקובץ כדי להוסיף את הפגישה ליומן שלך 📅")
+                    form.add_field('caption', "בלחיצה על הקובץ, הפגישה תישמר ביומן שלך 🔥")
                     
                     with open(result['ics_file'], 'rb') as f:
                         file_content = f.read()
