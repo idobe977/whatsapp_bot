@@ -212,33 +212,37 @@ class CalendarService:
             logger.info(f"Successfully created calendar event: {event.get('id')}")
             
             # Generate ICS file
-            ics_content = f"""BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//WhatsApp Survey Bot//Calendar Manager//EN
-CALSCALE:GREGORIAN
-METHOD:REQUEST
-BEGIN:VEVENT
-UID:{event.get('id')}
-DTSTAMP:{datetime.now(self.timezone).strftime('%Y%m%dT%H%M%SZ')}
-DTSTART;TZID={self.timezone.zone}:{slot.start_time.strftime('%Y%m%dT%H%M%S')}
-DTEND;TZID={self.timezone.zone}:{slot.end_time.strftime('%Y%m%dT%H%M%S')}
-SUMMARY:{title}
-DESCRIPTION:{description.replace('\n', '\\n')}
-SEQUENCE:0
-STATUS:CONFIRMED
-TRANSP:OPAQUE
-BEGIN:VALARM
-ACTION:DISPLAY
-DESCRIPTION:תזכורת לפגישה
-TRIGGER:-P1D
-END:VALARM
-BEGIN:VALARM
-ACTION:DISPLAY
-DESCRIPTION:תזכורת לפגישה
-TRIGGER:-PT1H
-END:VALARM
-END:VEVENT
-END:VCALENDAR""".replace('\n', '\r\n')
+            ics_lines = [
+                "BEGIN:VCALENDAR",
+                "VERSION:2.0",
+                "PRODID:-//WhatsApp Survey Bot//Calendar Manager//EN",
+                "CALSCALE:GREGORIAN",
+                "METHOD:REQUEST",
+                "BEGIN:VEVENT",
+                f"UID:{event.get('id')}",
+                f"DTSTAMP:{datetime.now(self.timezone).strftime('%Y%m%dT%H%M%SZ')}",
+                f"DTSTART;TZID={self.timezone.zone}:{slot.start_time.strftime('%Y%m%dT%H%M%S')}",
+                f"DTEND;TZID={self.timezone.zone}:{slot.end_time.strftime('%Y%m%dT%H%M%S')}",
+                f"SUMMARY:{title}",
+                f"DESCRIPTION:{description.replace('\n', '\\n')}",
+                "SEQUENCE:0",
+                "STATUS:CONFIRMED",
+                "TRANSP:OPAQUE",
+                "BEGIN:VALARM",
+                "ACTION:DISPLAY",
+                "DESCRIPTION:תזכורת לפגישה",
+                "TRIGGER:-P1D",
+                "END:VALARM",
+                "BEGIN:VALARM",
+                "ACTION:DISPLAY",
+                "DESCRIPTION:תזכורת לפגישה",
+                "TRIGGER:-PT1H",
+                "END:VALARM",
+                "END:VEVENT",
+                "END:VCALENDAR"
+            ]
+            
+            ics_content = "\r\n".join(ics_lines)
             
             # Create temporary file
             with tempfile.NamedTemporaryFile(mode='w', suffix='.ics', delete=False, encoding='utf-8') as f:
