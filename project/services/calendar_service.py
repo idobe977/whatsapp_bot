@@ -177,18 +177,30 @@ class CalendarService:
             title = settings.get('meeting_title_template', 'פגישה')
             description = settings.get('meeting_description_template', 'פגישה שנקבעה דרך הבוט')
             
-            # Replace placeholders in title and description
-            for key, value in attendee_data.items():
-                # Handle both field name variations
-                if key in ['סוג פגישה', 'סוג הפגישה']:
-                    description = description.replace("{{סוג הפגישה}}", value)
-                    description = description.replace("{{סוג פגישה}}", value)
-                else:
-                    description = description.replace(f"{{{{{key}}}}}", str(value))
+            # Store meeting type for later use
+            meeting_type = None
+            for key in ['סוג פגישה', 'סוג הפגישה']:
+                if key in attendee_data:
+                    meeting_type = attendee_data[key]
+                    break
             
-            # Format meeting date for Airtable
+            # Replace placeholders in description
+            if meeting_type:
+                description = description.replace("{{סוג הפגישה}}", meeting_type)
+                description = description.replace("{{סוג פגישה}}", meeting_type)
+            
+            # Format meeting date for Airtable (don't add it to attendee_data)
             meeting_date = slot.start_time.strftime("%Y-%m-%d %H:%M")
-            attendee_data['תאריך פגישה'] = meeting_date
+            
+            # Create the meeting data dictionary for Airtable
+            meeting_data = {
+                "שם מלא": attendee_data.get('שם מלא', ''),
+                "מזהה צ'אט וואטסאפ": attendee_data.get('phone', ''),
+                "תאריך פגישה": meeting_date,
+                "סטטוס": "חדש"
+            }
+            if meeting_type:
+                meeting_data["סוג פגישה"] = meeting_type
             
             event = {
                 'summary': title,
@@ -268,7 +280,8 @@ class CalendarService:
             return {
                 'event_id': event['id'],
                 'html_link': event['htmlLink'],
-                'ics_file': temp_file
+                'ics_file': temp_file,
+                'meeting_data': meeting_data
             }
             
         except Exception as e:
