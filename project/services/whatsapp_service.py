@@ -1082,14 +1082,13 @@ class WhatsAppService:
                 # Save meeting details to Airtable
                 try:
                     meetings_table = self.airtable.table(AIRTABLE_BASE_ID, "tblABM0PSF7rKoAWh")
-                    meeting_data = {
+                    meetings_table.create(result.get('meeting_data', {
                         "שם מלא": attendee_data['שם מלא'],
                         "סטטוס": "חדש",
                         "מזהה צ'אט וואטסאפ": chat_id,
                         "תאריך פגישה": formatted_date_airtable,
-                        "סוג פגישה": state['answers'].get('סוג הפגישה', '')
-                    }
-                    meetings_table.create(meeting_data)
+                        "סוג פגישה": state['answers'].get('סוג פגישה', '')
+                    }))
                     logger.info(f"Created meeting record in Airtable for {attendee_data['שם מלא']}")
                 except Exception as e:
                     logger.error(f"Error saving meeting to Airtable: {str(e)}")
