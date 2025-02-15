@@ -187,21 +187,26 @@ class CalendarService:
                 
                 # Handle meeting type replacement
                 if key == 'סוג הפגישה':
+                    logger.info(f"Found meeting type key in attendee_data with value: '{value}'")
                     meeting_type = value if value and value.strip() else "לא צוין"  # Default value if empty
+                    logger.info(f"Using meeting type value: '{meeting_type}'")
                     description = description.replace("{{סוג הפגישה}}", meeting_type)
                     description = description.replace("{{סוג פגישה}}", meeting_type)  # Try both variants
             
             # Ensure meeting type is replaced even if not in attendee_data
             if "{{סוג הפגישה}}" in description or "{{סוג פגישה}}" in description:
                 meeting_type = attendee_data.get('סוג הפגישה', '')
+                logger.info(f"Checking meeting type from attendee_data: '{meeting_type}'")
                 if meeting_type and meeting_type.strip():
+                    logger.info(f"Using meeting type from attendee_data: '{meeting_type}'")
                     description = description.replace("{{סוג הפגישה}}", meeting_type)
                     description = description.replace("{{סוג פגישה}}", meeting_type)
                 else:
+                    logger.info("Meeting type is empty or not found, using default value: 'לא צוין'")
                     description = description.replace("{{סוג הפגישה}}", "לא צוין")
                     description = description.replace("{{סוג פגישה}}", "לא צוין")
             
-            logger.info(f"Processed description: {description}")
+            logger.info(f"Final description after all replacements: {description}")
             
             event = {
                 'summary': title,
