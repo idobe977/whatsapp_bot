@@ -1059,7 +1059,7 @@ class WhatsAppService:
             attendee_data = {
                 'שם מלא': state['answers'].get('שם מלא', ''),
                 'phone': chat_id.split('@')[0],  # Extract phone number from chat_id
-                'סוג הפגישה': state['answers'].get('סוג הפגישה', '')  # Changed from 'סוג הפגישה'
+                'סוג הפגישה': state['answers'].get('סוג הפגישה', '')  # Get meeting type from answers
             }
             
             logger.info(f"Scheduling meeting with data: {json.dumps(attendee_data, ensure_ascii=False)}")
@@ -1087,7 +1087,7 @@ class WhatsAppService:
                 # Save meeting details to Airtable
                 try:
                     # Update existing record instead of creating new one
-                    table = self.airtable.table(AIRTABLE_BASE_ID, survey.airtable_table_id)
+                    table = self.airtable.table(AIRTABLE_BASE_ID, state['survey'].airtable_table_id)
                     meeting_data = {
                         "תאריך פגישה": formatted_date_airtable
                     }
