@@ -1058,8 +1058,11 @@ class WhatsAppService:
             # Get attendee data from previous answers
             attendee_data = {
                 'שם מלא': state['answers'].get('שם מלא', ''),
-                'phone': chat_id.split('@')[0]  # Extract phone number from chat_id
+                'phone': chat_id.split('@')[0],  # Extract phone number from chat_id
+                'סוג פגישה': state['answers'].get('סוג פגישה', '')  # Changed from 'סוג הפגישה'
             }
+            
+            logger.info(f"Scheduling meeting with data: {json.dumps(attendee_data, ensure_ascii=False)}")
             
             # Schedule the meeting
             result = self.calendar_manager.schedule_meeting(
@@ -1079,19 +1082,26 @@ class WhatsAppService:
                 # Format date for Airtable (YYYY-MM-DD HH:mm)
                 formatted_date_airtable = selected_slot.start_time.strftime("%Y-%m-%d %H:%M")
                 
+                logger.info(f"Saving meeting to Airtable with date: {formatted_date_airtable}")
+                
                 # Save meeting details to Airtable
                 try:
                     meetings_table = self.airtable.table(AIRTABLE_BASE_ID, "tblABM0PSF7rKoAWh")
-                    meetings_table.create(result.get('meeting_data', {
+                    meeting_data = {
                         "שם מלא": attendee_data['שם מלא'],
                         "סטטוס": "חדש",
                         "מזהה צ'אט וואטסאפ": chat_id,
                         "תאריך פגישה": formatted_date_airtable,
-                        "סוג פגישה": state['answers'].get('סוג פגישה', '')
-                    }))
-                    logger.info(f"Created meeting record in Airtable for {attendee_data['שם מלא']}")
+                        "סוג פגישה": attendee_data['סוג פגישה']  # Changed from 'סוג הפגישה'
+                    }
+                    logger.debug(f"Airtable data before create: {json.dumps(meeting_data, ensure_ascii=False)}")
+                    
+                    response = meetings_table.create(meeting_data)
+                    logger.info(f"Created meeting record in Airtable: {json.dumps(response, ensure_ascii=False)}")
                 except Exception as e:
                     logger.error(f"Error saving meeting to Airtable: {str(e)}")
+                    if hasattr(e, 'response'):
+                        logger.error(f"Airtable API response: {e.response.text}")
                 
                 # Send confirmation messages
                 await self.send_message_with_retry(
