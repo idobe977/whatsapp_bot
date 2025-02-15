@@ -1059,8 +1059,22 @@ class WhatsAppService:
             attendee_data = {
                 'שם מלא': state['answers'].get('שם מלא', ''),
                 'phone': chat_id.split('@')[0],  # Extract phone number from chat_id
-                'סוג הפגישה': state['answers'].get('סוג הפגישה', '')  # Get meeting type from answers
             }
+            
+            # Fetch meeting type from Airtable
+            try:
+                table = self.airtable.table(AIRTABLE_BASE_ID, state['survey'].airtable_table_id)
+                record = table.get(state["record_id"])
+                if record and "fields" in record:
+                    meeting_type = record["fields"].get("סוג הפגישה", "")
+                    logger.info(f"Fetched meeting type from Airtable: {meeting_type}")
+                    attendee_data['סוג הפגישה'] = meeting_type
+                else:
+                    logger.warning("Could not find meeting type in Airtable record")
+                    attendee_data['סוג הפגישה'] = ""
+            except Exception as e:
+                logger.error(f"Error fetching meeting type from Airtable: {str(e)}")
+                attendee_data['סוג הפגישה'] = ""
             
             logger.info(f"Scheduling meeting with data: {json.dumps(attendee_data, ensure_ascii=False)}")
             
