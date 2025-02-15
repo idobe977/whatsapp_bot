@@ -186,7 +186,7 @@ class CalendarService:
                 description = description.replace(f"{{{{phone}}}}", attendee_data.get('phone', ''))
                 
                 # Handle meeting type replacement
-                if key == 'סוג פגישה':
+                if key == 'סוג הפגישה':
                     description = description.replace("{{סוג הפגישה}}", value)
                     description = description.replace("{{סוג פגישה}}", value)  # Try both variants
             
