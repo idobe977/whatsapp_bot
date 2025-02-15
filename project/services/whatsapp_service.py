@@ -1059,7 +1059,7 @@ class WhatsAppService:
             attendee_data = {
                 'שם מלא': state['answers'].get('שם מלא', ''),
                 'phone': chat_id.split('@')[0],  # Extract phone number from chat_id
-                'סוג פגישה': state['answers'].get('סוג פגישה', '')  # Changed from 'סוג הפגישה'
+                'סוג הפגישה': state['answers'].get('סוג הפגישה', '')  # Changed from 'סוג הפגישה'
             }
             
             logger.info(f"Scheduling meeting with data: {json.dumps(attendee_data, ensure_ascii=False)}")
@@ -1092,7 +1092,7 @@ class WhatsAppService:
                         "סטטוס": "חדש",
                         "מזהה צ'אט וואטסאפ": chat_id,
                         "תאריך פגישה": formatted_date_airtable,
-                        "סוג פגישה": attendee_data['סוג פגישה']  # Changed from 'סוג הפגישה'
+                        "סוג הפגישה": attendee_data['סוג הפגישה']  # Changed from 'סוג הפגישה'
                     }
                     logger.debug(f"Airtable data before create: {json.dumps(meeting_data, ensure_ascii=False)}")
                     
