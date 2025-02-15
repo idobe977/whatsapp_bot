@@ -1086,20 +1086,17 @@ class WhatsAppService:
                 
                 # Save meeting details to Airtable
                 try:
-                    meetings_table = self.airtable.table(AIRTABLE_BASE_ID, "tblABM0PSF7rKoAWh")
+                    # Update existing record instead of creating new one
+                    table = self.airtable.table(AIRTABLE_BASE_ID, survey.airtable_table_id)
                     meeting_data = {
-                        "שם מלא": attendee_data['שם מלא'],
-                        "סטטוס": "חדש",
-                        "מזהה צ'אט וואטסאפ": chat_id,
-                        "תאריך פגישה": formatted_date_airtable,
-                        "סוג הפגישה": attendee_data['סוג הפגישה']  # Changed from 'סוג הפגישה'
+                        "תאריך פגישה": formatted_date_airtable
                     }
-                    logger.debug(f"Airtable data before create: {json.dumps(meeting_data, ensure_ascii=False)}")
+                    logger.debug(f"Updating Airtable record with data: {json.dumps(meeting_data, ensure_ascii=False)}")
                     
-                    response = meetings_table.create(meeting_data)
-                    logger.info(f"Created meeting record in Airtable: {json.dumps(response, ensure_ascii=False)}")
+                    response = table.update(state["record_id"], meeting_data)
+                    logger.info(f"Updated meeting record in Airtable: {json.dumps(response, ensure_ascii=False)}")
                 except Exception as e:
-                    logger.error(f"Error saving meeting to Airtable: {str(e)}")
+                    logger.error(f"Error updating meeting in Airtable: {str(e)}")
                     if hasattr(e, 'response'):
                         logger.error(f"Airtable API response: {e.response.text}")
                 
