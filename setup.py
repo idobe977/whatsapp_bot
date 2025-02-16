@@ -3,7 +3,8 @@ from setuptools import setup, find_packages
 setup(
     name="whatsapp-survey-bot",
     version="1.0.0",
-    packages=find_packages(),
+    packages=find_packages(where="project"),
+    package_dir={"": "project"},
     install_requires=[
         'fastapi==0.95.2',
         'uvicorn==0.22.0',
