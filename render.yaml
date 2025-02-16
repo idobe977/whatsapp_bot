@@ -3,6 +3,8 @@ services:
   - type: web
     name: whatsapp-bot-api
     env: python
+    region: frankfurt
+    plan: free
     buildCommand: pip install -r project/requirements.txt
     startCommand: cd project && uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
@@ -10,12 +12,28 @@ services:
         value: 3.10.0
       - key: PYTHONPATH
         value: .
+      - key: ID_INSTANCE
+        sync: false
+      - key: API_TOKEN_INSTANCE
+        sync: false
+      - key: AIRTABLE_API_KEY
+        sync: false
+      - key: AIRTABLE_BASE_ID
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT
+        sync: false
+      - key: LOG_LEVEL
+        value: INFO
     healthCheckPath: /api/health
+    autoDeploy: true
 
   # Frontend Static Site
   - type: web
     name: whatsapp-bot-frontend
     env: static
+    region: frankfurt
     buildCommand: cd project/frontend && npm install && npm run build
     staticPublishPath: ./project/frontend/build
     routes:
@@ -24,4 +42,7 @@ services:
         destination: /index.html
     envVars:
       - key: NODE_VERSION
-        value: 18.0.0 
+        value: 18.0.0
+      - key: REACT_APP_API_URL
+        value: https://whatsapp-bot-api.onrender.com/api
+    autoDeploy: true 
