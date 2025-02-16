@@ -96,7 +96,7 @@ class CalendarService:
                 logger.info(f"No working hours defined for {day_name}, skipping")
                 return []
             
-            # Parse working hours
+            # Parse working hours and create timezone-aware datetime objects
             start_time = datetime.strptime(working_hours['start'], '%H:%M').time()
             end_time = datetime.strptime(working_hours['end'], '%H:%M').time()
             
@@ -108,9 +108,18 @@ class CalendarService:
             slot_duration = timedelta(minutes=calendar_settings.get('meeting_duration', 45))
             buffer_time = timedelta(minutes=calendar_settings.get('buffer_between_meetings', 15))
             
+            # Check if current time is after start time for today's date
+            now = timezone.localize(datetime.now())
+            if date.date() == now.date() and now > start_datetime:
+                # Round up to next slot
+                minutes_since_start = (now - start_datetime).total_seconds() / 60
+                slots_passed = int((minutes_since_start + slot_duration.total_seconds()/60 - 1) // (slot_duration.total_seconds()/60 + buffer_time.total_seconds()/60))
+                current_time = start_datetime + slots_passed * (slot_duration + buffer_time)
+            else:
+                current_time = start_datetime
+            
             # Generate all possible slots
             slots = []
-            current_time = start_datetime
             while current_time + slot_duration <= end_datetime:
                 slot = TimeSlot(
                     start_time=current_time,
@@ -126,6 +135,76 @@ class CalendarService:
             
         except Exception as e:
             logger.error(f"Error getting available slots: {str(e)}")
+            logger.error(f"Stack trace: {traceback.format_exc()}")
+            return []
+
+    def filter_booked_slots(self, slots: List[TimeSlot], calendar_settings: Dict) -> List[TimeSlot]:
+        """Filter out slots that are already booked"""
+        try:
+            if not self.service:
+                logger.error("Calendar service not initialized")
+                return []
+            
+            timezone = pytz.timezone(calendar_settings.get('timezone', 'Asia/Jerusalem'))
+            now = timezone.localize(datetime.now())
+            
+            # Get earliest and latest times from slots
+            if not slots:
+                return []
+            
+            min_time = min(slot.start_time for slot in slots)
+            max_time = max(slot.end_time for slot in slots)
+            
+            # Get events from calendar
+            events_result = self.service.events().list(
+                calendarId=calendar_settings.get('calendar_id', 'primary'),
+                timeMin=min_time.isoformat(),
+                timeMax=max_time.isoformat(),
+                singleEvents=True,
+                orderBy='startTime'
+            ).execute()
+            
+            events = events_result.get('items', [])
+            
+            # Convert event times to datetime objects
+            booked_slots = []
+            for event in events:
+                start = event['start'].get('dateTime')
+                end = event['end'].get('dateTime')
+                
+                if start and end:
+                    start_dt = datetime.fromisoformat(start)
+                    end_dt = datetime.fromisoformat(end)
+                    
+                    # Make timezone-aware if needed
+                    if start_dt.tzinfo is None:
+                        start_dt = timezone.localize(start_dt)
+                    if end_dt.tzinfo is None:
+                        end_dt = timezone.localize(end_dt)
+                        
+                    booked_slots.append((start_dt, end_dt))
+            
+            # Filter available slots
+            available_slots = []
+            for slot in slots:
+                # Skip slots in the past
+                if slot.start_time <= now:
+                    continue
+                
+                is_available = True
+                for booked_start, booked_end in booked_slots:
+                    # Check for overlap
+                    if not (slot.end_time <= booked_start or slot.start_time >= booked_end):
+                        is_available = False
+                        break
+                
+                if is_available:
+                    available_slots.append(slot)
+            
+            return available_slots
+            
+        except Exception as e:
+            logger.error(f"Error filtering booked slots: {str(e)}")
             logger.error(f"Stack trace: {traceback.format_exc()}")
             return []
 
