@@ -6,7 +6,8 @@ pip install --no-cache-dir -r project/requirements.txt
 # Install frontend dependencies and build
 cd project/frontend
 npm install
-npm run build
+CI=false npm run build
+cd ../..
 
 # Create necessary directories
-mkdir -p ../surveys 
+mkdir -p project/surveys 
