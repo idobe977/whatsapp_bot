@@ -9,12 +9,43 @@
         "maxLambdaSize": "15mb",
         "buildCommand": "pip install --no-cache-dir -r project/requirements.txt"
       }
+    },
+    {
+      "src": "project/frontend/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "build"
+      }
     }
   ],
   "routes": [
     {
-      "src": "/(.*)",
+      "src": "/api/(.*)",
       "dest": "project/main.py"
+    },
+    {
+      "src": "^/static/(.*)",
+      "dest": "project/frontend/build/static/$1"
+    },
+    {
+      "src": "^/favicon.ico",
+      "dest": "project/frontend/build/favicon.ico"
+    },
+    {
+      "src": "^/manifest.json",
+      "dest": "project/frontend/build/manifest.json"
+    },
+    {
+      "src": "^/(.*)js",
+      "dest": "project/frontend/build/$1js"
+    },
+    {
+      "src": "^/(.*)css",
+      "dest": "project/frontend/build/$1css"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "project/frontend/build/index.html"
     }
   ],
   "env": {
