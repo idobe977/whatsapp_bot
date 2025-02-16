@@ -195,106 +195,85 @@ class WhatsAppService:
             logger.error(f"Stack trace: {traceback.format_exc()}")
             await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד ההודעה הקולית. נא לנסות שוב.")
 
-async def handle_poll_response(self, chat_id: str, poll_data: Dict) -> None:
-    """Handle poll response"""
-    try:
-        logger.info(f"Processing poll response from {chat_id}")
-        logger.debug(f"Poll data: {json.dumps(poll_data, ensure_ascii=False)}")
-
-        # Check if chat_id is in survey state
-        if chat_id not in self.survey_state:
-            logger.warning(f"Received poll response for unknown chat_id: {chat_id}")
-            return
-
-        state = self.survey_state[chat_id]
-        state['last_activity'] = datetime.now()
-
-        # Get selected options
-        selected_options = []
-        if "votes" in poll_data:
-            for vote in poll_data["votes"]:
-                if "optionVoters" in vote and chat_id in vote.get("optionVoters", []):
-                    selected_options.append(vote["optionName"])
-
-        if not selected_options:
-            logger.warning(f"No valid options selected for chat_id: {chat_id}")
-            return
-
-        selected_option = selected_options[0]
-        logger.info(f"Selected option: {selected_option}")
-
-        # Check if this is a meeting scheduler response
-        scheduler_state = state.get('meeting_scheduler')
-        if scheduler_state:
-            # Check if this is date selection or time selection
-            if scheduler_state.get('selected_date') is None:
-                # This is date selection
-                await self.handle_meeting_date_selection(chat_id, selected_option)
-            else:
-                # This is time selection
-                await self.handle_meeting_time_selection(chat_id, selected_option)
-            return
-
-        # Regular poll handling
-        current_question = state["survey"].questions[state["current_question"]]
-        question_id = current_question["id"]
-
-        # Check if current question is a poll question
-        if current_question["type"] != "poll":
-            logger.warning(f"Ignoring poll response as current question {question_id} is not a poll question")
-            return
-
-        # Check if this poll response matches the current question's name
-        if poll_data.get("name") != current_question["text"]:
-            logger.warning(f"Ignoring poll response as it doesn't match current question. Expected: {current_question['text']}, Got: {poll_data.get('name')}")
-            return
-
-        logger.info(f"Processing poll response for question: {question_id}")
-        logger.debug(f"Poll data: {json.dumps(poll_data, ensure_ascii=False)}")
-
-        if selected_options:
-            # Use the full selected option text without processing
-            answer_content = selected_options[0]
-            await self.process_poll_answer(chat_id, answer_content, question_id)
-        else:
-            logger.warning(f"No valid options selected for chat_id: {chat_id}")
-
-        # If not in survey, check if selected option is a trigger phrase
-        for survey in self.surveys:
-            if selected_option in survey.trigger_phrases:
-                logger.info(f"Found trigger phrase '{selected_option}' for survey: {survey.name}")
-
-                # Create initial record in Airtable
-                record_id = self.create_initial_record(chat_id, "", survey)
-                if record_id:
-                    # Initialize survey state
-                    self.survey_state[chat_id] = {
-                        "current_question": 0,
-                        "answers": {},
-                        "record_id": record_id,
-                        "survey": survey,
-                        "last_activity": datetime.now()
-                    }
-
-                    # Send welcome message
-                    await self.send_message_with_retry(chat_id, survey.messages["welcome"])
-                    await asyncio.sleep(1.5)
-
-                    # Send first question
-                    await self.send_next_question(chat_id)
-                else:
-                    await self.send_message_with_retry(
-                        chat_id,
-                        "מצטערים, הייתה שגיאה בהתחלת השאלון. נא לנסות שוב."
-                    )
+    async def handle_poll_response(self, chat_id: str, poll_data: Dict) -> None:
+        """Handle poll response"""
+        try:
+            logger.info(f"Processing poll response from {chat_id}")
+            logger.debug(f"Poll data: {json.dumps(poll_data, ensure_ascii=False)}")
+            
+            # Get selected options
+            selected_options = []
+            if "votes" in poll_data:
+                for vote in poll_data["votes"]:
+                    if "optionVoters" in vote and chat_id in vote.get("optionVoters", []):
+                        selected_options.append(vote["optionName"])
+            
+            if not selected_options:
+                logger.warning(f"No valid options selected for chat_id: {chat_id}")
                 return
+                
+            selected_option = selected_options[0]
+            logger.info(f"Selected option: {selected_option}")
 
-        logger.info(f"Selected option '{selected_option}' is not a trigger phrase")
+            # Check if user is in middle of a survey
+            if chat_id in self.survey_state:
+                state = self.survey_state[chat_id]
+                state['last_activity'] = datetime.now()
+                
+                # Check if this is a meeting scheduler response
+                scheduler_state = state.get('meeting_scheduler')
+                if scheduler_state:
+                    if scheduler_state.get('selected_date') is None:
+                        await self.handle_meeting_date_selection(chat_id, selected_option)
+                    else:
+                        await self.handle_meeting_time_selection(chat_id, selected_option)
+                    return
+                
+                # Regular poll handling for survey
+                current_question = state["survey"].questions[state["current_question"]]
+                question_id = current_question["id"]
+                
+                if current_question["type"] == "poll":
+                    await self.process_poll_answer(chat_id, selected_option, question_id)
+                    return
+            
+            # If not in survey, check if selected option is a trigger phrase
+            for survey in self.surveys:
+                if selected_option in survey.trigger_phrases:
+                    logger.info(f"Found trigger phrase '{selected_option}' for survey: {survey.name}")
+                    
+                    # Create initial record in Airtable
+                    record_id = self.create_initial_record(chat_id, "", survey)
+                    if record_id:
+                        # Initialize survey state
+                        self.survey_state[chat_id] = {
+                            "current_question": 0,
+                            "answers": {},
+                            "record_id": record_id,
+                            "survey": survey,
+                            "last_activity": datetime.now()
+                        }
+                        
+                        # Send welcome message
+                        await self.send_message_with_retry(chat_id, survey.messages["welcome"])
+                        await asyncio.sleep(1.5)
+                        
+                        # Send first question
+                        await self.send_next_question(chat_id)
+                    else:
+                        await self.send_message_with_retry(
+                            chat_id, 
+                            "מצטערים, הייתה שגיאה בהתחלת השאלון. נא לנסות שוב."
+                        )
+                    return
+                    
+            logger.info(f"Selected option '{selected_option}' is not a trigger phrase")
+            
+        except Exception as e:
+            logger.error(f"Error handling poll response: {str(e)}")
+            logger.error(f"Stack trace: {traceback.format_exc()}")
+            await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד התשובה. נא לנסות שוב.")
 
-    except Exception as e:
-        logger.error(f"Error handling poll response: {str(e)}")
-        logger.error(f"Stack trace: {traceback.format_exc()}")
-        await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד התשובה. נא לנסות שוב.")
     async def process_poll_answer(self, chat_id: str, answer_content: str, question_id: str) -> None:
         """Process poll answer and update Airtable"""
         try:
