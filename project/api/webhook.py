@@ -1,6 +1,7 @@
 from typing import Dict
 from project.services.whatsapp_service import WhatsAppService
 from project.utils.logger import logger
+import traceback
 
 async def handle_webhook_data(webhook_data: Dict, whatsapp: WhatsAppService) -> None:
     """Process incoming webhook data"""
@@ -12,7 +13,14 @@ async def handle_webhook_data(webhook_data: Dict, whatsapp: WhatsAppService) -> 
         message_data = webhook_data["messageData"]
         sender_data = webhook_data["senderData"]
         chat_id = sender_data["chatId"]
+        
+        # Ignore group chats
+        if not chat_id.endswith("@c.us"):
+            logger.info(f"Ignoring group chat message from {chat_id}")
+            return
+            
         sender_name = sender_data.get("senderName", "")
+        sender_contact_name = sender_data.get("senderContactName", "")
         
         logger.info(f"Processing message from {chat_id} ({sender_name})")
         logger.debug(f"Message type: {message_data['typeMessage']}")
@@ -20,7 +28,7 @@ async def handle_webhook_data(webhook_data: Dict, whatsapp: WhatsAppService) -> 
         if message_data["typeMessage"] == "textMessage":
             text = message_data["textMessageData"]["textMessage"]
             logger.info(f"Received text message: {text[:100]}...")  # Log first 100 chars
-            await whatsapp.handle_text_message(chat_id, text, sender_name)
+            await whatsapp.handle_text_message(chat_id, text, sender_contact_name or sender_name)
             
         elif message_data["typeMessage"] == "audioMessage":
             voice_url = message_data["fileMessageData"]["downloadUrl"]
@@ -35,4 +43,5 @@ async def handle_webhook_data(webhook_data: Dict, whatsapp: WhatsAppService) -> 
             
     except Exception as e:
         logger.error(f"Error handling webhook data: {str(e)}")
+        logger.error(f"Stack trace: {traceback.format_exc()}")
         raise 
