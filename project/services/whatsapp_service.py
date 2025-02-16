@@ -17,7 +17,7 @@ import re
 from .calendar_service import CalendarService, TimeSlot
 from pyairtable import Api
 from googleapiclient.discovery import build
-from google.oauth2.credentials import Credentials
+from google.oauth2 import service_account
 
 load_dotenv()
 
@@ -41,10 +41,14 @@ class WhatsAppService:
             self.airtable = Api(AIRTABLE_API_KEY)
             logger.info("Initialized Airtable client")
             
-            # Initialize Google People API client
-            credentials = Credentials.from_authorized_user_info(json.loads(GOOGLE_CREDENTIALS))
+            # Initialize Google People API client with service account
+            credentials_info = json.loads(GOOGLE_CREDENTIALS)
+            credentials = service_account.Credentials.from_service_account_info(
+                credentials_info,
+                scopes=['https://www.googleapis.com/auth/contacts']
+            )
             self.people_service = build('people', 'v1', credentials=credentials)
-            logger.info("Initialized Google People API client")
+            logger.info("Initialized Google People API client with service account")
             
             self.surveys = self.load_surveys()
             self.survey_state = {}  # Track survey state for each user
@@ -1156,11 +1160,19 @@ class WhatsAppService:
             # Extract phone number from chat_id
             phone_number = chat_id.split('@')[0]
             
+            # Send a warmup request as recommended in the documentation
+            warmup = self.people_service.people().searchContacts(
+                query='',
+                readMask='names,phoneNumbers',
+                sources=['READ_SOURCE_TYPE_CONTACT']
+            ).execute()
+            
             # Search for contact using phone number
             results = self.people_service.people().searchContacts(
                 query=phone_number,
                 readMask='names,phoneNumbers',
-                sources=['READ_SOURCE_TYPE_CONTACT']
+                sources=['READ_SOURCE_TYPE_CONTACT'],
+                pageSize=30
             ).execute()
             
             if 'results' in results:
@@ -1170,7 +1182,8 @@ class WhatsAppService:
                     
                     # Check if any phone number matches
                     for phone in phone_numbers:
-                        if phone.get('value', '').replace(' ', '').replace('-', '').endswith(phone_number):
+                        clean_phone = phone.get('value', '').replace(' ', '').replace('-', '').replace('+', '')
+                        if clean_phone.endswith(phone_number):
                             contact = {
                                 'שם מלא': person_data.get('names', [{}])[0].get('displayName', ''),
                                 'מזהה צ\'אט בוואטסאפ': chat_id,
@@ -1200,6 +1213,10 @@ class WhatsAppService:
             
             # Extract phone number from chat_id
             phone_number = chat_id.split('@')[0]
+            
+            # Format phone number with international prefix if not present
+            if not phone_number.startswith('+'):
+                phone_number = f"+{phone_number}"
             
             # Create contact
             contact_body = {
