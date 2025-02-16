@@ -7,6 +7,7 @@ pip install --no-cache-dir -r project/requirements.txt
 cd project/frontend
 npm install
 CI=false npm run build
+mv build ../../build
 cd ../..
 
 # Create necessary directories
