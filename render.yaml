@@ -1,0 +1,27 @@
+services:
+  # Backend API Service
+  - type: web
+    name: whatsapp-bot-api
+    env: python
+    buildCommand: pip install -r project/requirements.txt
+    startCommand: cd project && uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.0
+      - key: PYTHONPATH
+        value: .
+    healthCheckPath: /api/health
+
+  # Frontend Static Site
+  - type: web
+    name: whatsapp-bot-frontend
+    env: static
+    buildCommand: cd project/frontend && npm install && npm run build
+    staticPublishPath: ./project/frontend/build
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: NODE_VERSION
+        value: 18.0.0 
