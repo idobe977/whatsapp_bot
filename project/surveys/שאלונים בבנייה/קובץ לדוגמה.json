@@ -9,10 +9,26 @@
   ],
   "airtable": {
     "base_id": "appjvjnGLFopOf75b",
-    "table_id": "tblho5wUHcU8bGJWU"
+    "table_id": "tbltRF5Bo5njUXy0S"
+  },
+  "calendar_settings": {
+    "calendar_id": "idobe97@gmail.com",
+    "working_hours": {
+      "sunday": {"start": "09:00", "end": "17:00"},
+      "monday": {"start": "09:00", "end": "17:00"},
+      "tuesday": {"start": "09:00", "end": "17:00"},
+      "wednesday": {"start": "09:00", "end": "17:00"},
+      "thursday": {"start": "09:00", "end": "17:00"}
+    },
+    "meeting_duration": 45,
+    "buffer_between_meetings": 15,
+    "days_to_show": 7,
+    "timezone": "Asia/Jerusalem",
+    "meeting_title_template": "פגישת ייעוץ עם {{שם מלא}}",
+    "meeting_description_template": "נקבע דרך בוט WhatsApp\nטלפון: {{phone}}\nנושא: {{סיבת התנגדות}}"
   },
   "messages": {
-    "welcome": "*תודה שהקדשת מזמנך!* 🙏\nנשמח לשמוע את דעתך על השירות שלנו. 🎯\n*המשוב שלך חשוב לנו!* 🎁\n\n",
+    "welcome": "*תודה שהקדשת מזמנך!* 🙏\nנשמח לשמוע את דעתך על השירות שלנו. 🎯\n*המשוב שלך חשוב לנו!* 🎁",
     "completion": {
       "text": "תודה רבה על המשוב שלך! 🙏\nנשמח להיות איתך בקשר בקרוב.",
       "should_generate_summary": true
@@ -45,104 +61,45 @@
       "reflection": {
         "type": "empathetic",
         "enabled": true
-      }
-    },
-    {
-      "id": "שביעות רצון כללית",
-      "type": "poll",
-      "text": "איך היית מדרג את שביעות הרצון שלך מהשירות שלנו, {{שם מלא}}? ⭐",
-      "options": [
-        "מאוד מרוצה 🌟",
-        "מרוצה 😊",
-        "נייטרלי 😐",
-        "לא מרוצה 😞",
-        "מאוד לא מרוצה 😡"
-      ],
-      "multipleAnswers": false,
-      "reflection": {
-        "type": "empathetic",
-        "enabled": true
-      }
-    },
-    {
-      "id": "המלצות לשיפור",
-      "type": "text",
-      "text": "מה היית ממליץ לשפר בשירות שלנו, {{שם מלא}}? 📝",
-      "reflection": {
-        "type": "empathetic",
-        "enabled": true
-      }
-    },
-    {
-      "id": "שירותים נוספים",
-      "type": "poll",
-      "text": "האם יש שירותים נוספים שהיית רוצה שנציע? 💡",
-      "options": [
-        "כן ✅",
-        "לא ❌"
-      ],
-      "multipleAnswers": false,
-      "reflection": {
-        "type": "empathetic",
-        "enabled": true
       },
       "flow": {
         "if": {
-          "answer": "כן ✅",
+          "answer": "מאוד מרוצה",
           "then": {
-            "say": "שמח לשמוע! 🎉 אשמח לשמוע אילו שירותים נוספים מעניינים אותך.",
-            "goto": "שירותים נוספים"
+            "goto": "שאלה_2",
+            "say": "איזה כיף לשמוע! מה הכי אהבת בשירות שלנו?"
           }
         },
         "else_if": [
           {
-            "answer": "לא ❌",
+            "answer": "מרוצה",
             "then": {
-              "say": "אני מבין. תודה על המשוב!",
-              "goto": "סיום"
+              "goto": "שאלה_3",
+              "say": "תודה! איך נוכל לשפר את השירות?"
             }
           }
-        ]
-      }
-    },
-    {
-      "id": "סיבת התנגדות",
-      "type": "text",
-      "text": "מה הסיבה העיקרית להתנגדות לפתרונות אוטומציה? 🤔",
-      "reflection": {
-        "type": "empathetic",
-        "enabled": true
-      },
-      "flow": {
+        ],
         "then": {
-          "goto": "מידע נוסף"
+          "goto": "שאלה_4",
+          "say": "מצטערים לשמוע. מה לא היה בסדר?"
         }
       }
     },
     {
-      "id": "תקציב",
-      "type": "poll",
-      "text": "מה התקציב החודשי שאת/ה מוכן/ה להשקיע בפתרונות אוטומציה? 💰",
-      "options": [
-        "עד 200 ש\"ח לחודש",
-        "200-500 ש\"ח לחודש",
-        "מעל 500 ש\"ח לחודש"
-      ],
-      "multipleAnswers": false,
+      "id": "קביעת פגישת ייעוץ",
+      "type": "meeting_scheduler",
+      "text": "האם תרצה/י לקבוע פגישת ייעוץ אישית לדיון בפתרונות המתאימים לך? 📅",
+      "confirmation_message": "מעולה! קבענו פגישה ל-{{meeting_time}} 🎯\nאשלח לך תזכורת יום לפני הפגישה 📱",
+      "no_slots_message": "מצטערים, אין זמנים פנויים בשבועיים הקרובים. אנא נסה שוב מאוחר יותר או צור קשר ישירות.",
       "reflection": {
         "type": "empathetic",
         "enabled": true
-      },
-      "flow": {
-        "then": {
-          "goto": "מידע נוסף"
-        }
       }
     },
     {
       "id": "מידע נוסף",
       "type": "text",
-      "text": "7️⃣ יש משהו נוסף שתרצה/י לשתף על האתגרים או השאיפות שלך בעסק? 📝 💭",
+      "text": "יש משהו נוסף שתרצה/י לשתף על האתגרים או השאיפות שלך בעסק? 📝 💭",
       "reflection": {
         "type": "empathetic",
         "enabled": true
