@@ -38,7 +38,7 @@ async def handle_webhook_data(webhook_data: Dict, whatsapp: WhatsAppService) -> 
         elif message_data["typeMessage"] == "pollUpdateMessage":
             poll_data = message_data["pollMessageData"]
             logger.info("Received poll update")
-            logger.debug(f"Poll data: {poll_data}")
+            logger.debug(f"Full poll data: {poll_data}")
             
             # Get selected options
             selected_options = []
@@ -49,18 +49,32 @@ async def handle_webhook_data(webhook_data: Dict, whatsapp: WhatsAppService) -> 
             
             if selected_options:
                 selected_option = selected_options[0]
-                logger.info(f"Selected option: {selected_option}")
+                logger.info(f"User {chat_id} selected option: {selected_option}")
                 
-                # If we're in an active survey, handle the poll response first
-                if chat_id in whatsapp.survey_state:
-                    logger.info(f"Processing poll response for active survey")
-                    await whatsapp.handle_poll_response(chat_id, poll_data)
+                # Check if this is a trigger phrase for any survey
+                trigger_found = False
+                for survey in whatsapp.surveys:
+                    logger.debug(f"Checking triggers for survey: {survey.name}")
+                    for trigger in survey.trigger_phrases:
+                        if trigger.lower() in selected_option.lower():
+                            logger.info(f"Found matching trigger '{trigger}' in option '{selected_option}' for survey: {survey.name}")
+                            trigger_found = True
+                            break
+                    if trigger_found:
+                        break
                 
-                # Then check for triggers, but only if we're not in an active survey
-                # or if the current survey is waiting for a trigger (like after completion)
-                if chat_id not in whatsapp.survey_state or whatsapp.survey_state[chat_id].get("waiting_for_trigger"):
-                    logger.info(f"Checking for triggers in selected option: {selected_option}")
+                if trigger_found:
+                    logger.info(f"Found trigger in option, handling as text message first")
+                    # Handle as text first to trigger the survey
                     await whatsapp.handle_text_message(chat_id, selected_option, sender_contact_name or sender_name)
+                else:
+                    logger.info(f"No trigger found in option, checking if in active survey")
+                    # Only handle as poll response if we're in an active survey
+                    if chat_id in whatsapp.survey_state:
+                        logger.info(f"User is in active survey, handling poll response")
+                        await whatsapp.handle_poll_response(chat_id, poll_data)
+                    else:
+                        logger.info(f"User is not in active survey and no trigger found in option: {selected_option}")
             
     except Exception as e:
         logger.error(f"Error handling webhook data: {str(e)}")
