@@ -14,7 +14,9 @@
       "monday": {"start": "09:00", "end": "14:00"},
       "tuesday": {"start": "09:00", "end": "11:00"},
       "wednesday": {"start": "09:00", "end": "14:00"},
-      "thursday": {"start": "09:00", "end": "11:00"}
+      "thursday": {"start": "09:00", "end": "11:00"},
+      "friday": null,
+      "saturday": null
     },
     "slot_duration_minutes": 30,
     "buffer_between_meetings": 30,
