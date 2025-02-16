@@ -5,8 +5,11 @@ services:
     env: python
     region: frankfurt
     plan: free
-    buildCommand: pip install -r project/requirements.txt
-    startCommand: cd project && uvicorn main:app --host 0.0.0.0 --port $PORT
+    rootDir: project
+    buildCommand: |
+      pip install -r requirements.txt
+      pip install -r ../requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: 3.10.0
@@ -34,8 +37,11 @@ services:
     name: whatsapp-bot-frontend
     env: static
     region: frankfurt
-    buildCommand: cd project/frontend && npm install && npm run build
-    staticPublishPath: ./project/frontend/build
+    rootDir: project/frontend
+    buildCommand: |
+      npm install
+      npm run build
+    staticPublishPath: build
     routes:
       - type: rewrite
         source: /*
