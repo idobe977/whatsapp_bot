@@ -815,6 +815,34 @@ class WhatsAppService:
             # Send completion message
             await self.send_message_with_retry(chat_id, survey.messages["completion"]["text"])
             
+            # Get customer name from answers or state
+            customer_name = state["answers"].get("שם מלא", "")
+            if not customer_name:
+                # Try to get from Airtable
+                try:
+                    table = self.airtable.table(AIRTABLE_BASE_ID, survey.airtable_table_id)
+                    record = table.get(state["record_id"])
+                    if record and "fields" in record:
+                        customer_name = record["fields"].get("שם מלא", "")
+                except Exception as e:
+                    logger.error(f"Error getting customer name from Airtable: {str(e)}")
+                    customer_name = ""
+
+            # Send notification to group
+            notification_group_id = "120363021225440995@g.us"
+            notification_message = (
+                f"✨ *שאלון הושלם בהצלחה!* ✨\n\n"
+                f"🌟 *שם השאלון:* {survey.name}\n"
+                f"👤 *שם הלקוח:* {customer_name or 'לא צוין'}\n\n"
+                f"תודה על שיתוף הפעולה! 🙏"
+            )
+            
+            try:
+                await self.send_message_with_retry(notification_group_id, notification_message)
+                logger.info(f"Sent completion notification to group for survey: {survey.name}")
+            except Exception as e:
+                logger.error(f"Error sending group notification: {str(e)}")
+            
             # Clean up state
             del self.survey_state[chat_id]
             
