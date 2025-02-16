@@ -51,18 +51,16 @@ async def handle_webhook_data(webhook_data: Dict, whatsapp: WhatsAppService) -> 
                 selected_option = selected_options[0]
                 logger.info(f"Selected option: {selected_option}")
                 
-                # First check if the selected option triggers a survey
-                # This needs to happen before handling the poll response
-                # because handle_text_message might start a new survey
-                await whatsapp.handle_text_message(chat_id, selected_option, sender_contact_name or sender_name)
-                
-                # Only handle poll response if we're in an active survey
-                # This prevents the "unknown chat_id" warning
+                # If we're in an active survey, handle the poll response first
                 if chat_id in whatsapp.survey_state:
                     logger.info(f"Processing poll response for active survey")
                     await whatsapp.handle_poll_response(chat_id, poll_data)
-                else:
-                    logger.info(f"No active survey for {chat_id}, skipping poll response handling")
+                
+                # Then check for triggers, but only if we're not in an active survey
+                # or if the current survey is waiting for a trigger (like after completion)
+                if chat_id not in whatsapp.survey_state or whatsapp.survey_state[chat_id].get("waiting_for_trigger"):
+                    logger.info(f"Checking for triggers in selected option: {selected_option}")
+                    await whatsapp.handle_text_message(chat_id, selected_option, sender_contact_name or sender_name)
             
     except Exception as e:
         logger.error(f"Error handling webhook data: {str(e)}")
