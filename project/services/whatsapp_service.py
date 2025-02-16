@@ -92,10 +92,11 @@ class WhatsAppService:
     async def handle_text_message(self, chat_id: str, text: str, sender_name: str) -> None:
         """Handle incoming text message"""
         try:
-            logger.info(f"Handling text message from {chat_id}")
+            logger.info(f"Starting to handle text message from {chat_id}: {text}")
             
             # Check if user is in a survey
             if chat_id in self.survey_state:
+                logger.info(f"User {chat_id} is in an active survey")
                 state = self.survey_state[chat_id]
                 
                 # Check for survey timeout
@@ -116,10 +117,10 @@ class WhatsAppService:
                 return
             
             # If not in survey, first check if this is a contact
+            logger.info(f"User {chat_id} is not in a survey, checking contact status")
             contact = await self.get_contact(chat_id)
             
             if not contact:
-                # Not a contact, ask for name
                 logger.info(f"New contact {chat_id}, asking for name")
                 await self.send_message_with_retry(
                     chat_id,
@@ -132,8 +133,10 @@ class WhatsAppService:
                 return
             
             # Check for trigger phrases
+            logger.info(f"Checking trigger phrases for text: {text}")
             for survey in self.surveys:
                 logger.debug(f"Checking triggers for survey: {survey.name}")
+                logger.debug(f"Survey trigger phrases: {survey.trigger_phrases}")
                 
                 for trigger in survey.trigger_phrases:
                     if trigger.lower() in text.lower():
@@ -142,6 +145,7 @@ class WhatsAppService:
                         # Create initial record in Airtable
                         record_id = await self.create_initial_record(chat_id, contact["שם מלא"], survey)
                         if record_id:
+                            logger.info(f"Created Airtable record {record_id} for survey {survey.name}")
                             # Initialize survey state
                             self.survey_state[chat_id] = {
                                 "current_question": 0,
@@ -157,12 +161,16 @@ class WhatsAppService:
                             
                             # Send first question
                             await self.send_next_question(chat_id)
+                            return
                         else:
+                            logger.error(f"Failed to create Airtable record for survey {survey.name}")
                             await self.send_message_with_retry(
                                 chat_id, 
                                 "מצטערים, הייתה שגיאה בהתחלת השאלון. נא לנסות שוב."
                             )
-                        return
+                            return
+            
+            logger.info(f"No trigger phrases found in message: {text}")
             
             # If we get here, user is not in a survey and no trigger was found
             if chat_id in self.survey_state and self.survey_state[chat_id].get("waiting_for_name"):
