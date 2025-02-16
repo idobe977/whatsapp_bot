@@ -8,7 +8,7 @@ setup(
         'fastapi==0.95.2',
         'uvicorn==0.22.0',
         'python-dotenv==1.0.0',
-        'aiohttp==3.8.5',
+        'aiohttp==3.11.12',
         'pyairtable==2.2.0',
         'google-auth==2.22.0',
         'google-auth-oauthlib==1.0.0',
@@ -21,4 +21,5 @@ setup(
         'cachetools==5.3.1',
         'pydantic==1.10.12'
     ],
+    python_requires='>=3.10',
 ) 
