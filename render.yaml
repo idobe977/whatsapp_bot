@@ -5,16 +5,17 @@ services:
     env: python
     region: frankfurt
     plan: free
-    rootDir: project
+    rootDir: .
     buildCommand: |
+      pip install -e .
       pip install -r requirements.txt
-      pip install -r ../requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+      pip install -r project/requirements.txt
+    startCommand: python -m uvicorn project.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: 3.10.0
       - key: PYTHONPATH
-        value: .
+        value: /opt/render/project/src
       - key: ID_INSTANCE
         sync: false
       - key: API_TOKEN_INSTANCE
@@ -39,7 +40,9 @@ services:
     region: frankfurt
     rootDir: project/frontend
     buildCommand: |
-      npm install
+      npm cache clean --force
+      rm -rf node_modules package-lock.json
+      npm install --legacy-peer-deps
       npm run build
     staticPublishPath: build
     routes:
@@ -51,4 +54,6 @@ services:
         value: 18.0.0
       - key: REACT_APP_API_URL
         value: https://whatsapp-bot-api.onrender.com/api
+      - key: CI
+        value: false
     autoDeploy: true 
