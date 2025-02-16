@@ -39,7 +39,20 @@ async def handle_webhook_data(webhook_data: Dict, whatsapp: WhatsAppService) -> 
             poll_data = message_data["pollMessageData"]
             logger.info("Received poll update")
             logger.debug(f"Poll data: {poll_data}")
-            await whatsapp.handle_poll_response(chat_id, poll_data)
+            
+            # Get selected options
+            selected_options = []
+            if "votes" in poll_data:
+                for vote in poll_data["votes"]:
+                    if "optionVoters" in vote and chat_id in vote.get("optionVoters", []):
+                        selected_options.append(vote["optionName"])
+            
+            if selected_options:
+                selected_option = selected_options[0]
+                # First handle the poll response
+                await whatsapp.handle_poll_response(chat_id, poll_data)
+                # Then check if the selected option triggers a survey
+                await whatsapp.handle_text_message(chat_id, selected_option, sender_contact_name or sender_name)
             
     except Exception as e:
         logger.error(f"Error handling webhook data: {str(e)}")
