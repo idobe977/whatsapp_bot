@@ -8,6 +8,7 @@ from googleapiclient.discovery import build
 import pytz
 from project.utils.logger import logger
 from dataclasses import dataclass
+import traceback
 
 @dataclass
 class TimeSlot:
@@ -80,94 +81,52 @@ class CalendarService:
         
         return f'יום {day_name} {date_str}'
 
-    def get_available_slots(self, settings: Dict, date: datetime) -> List[TimeSlot]:
-        """Get available time slots for a given date"""
+    def get_available_slots(self, calendar_settings: Dict, date: datetime) -> List[TimeSlot]:
+        """Get available time slots for a specific date"""
         try:
-            # Get working hours with default values
-            default_working_hours = {
-                'sunday': {'start': '09:00', 'end': '14:00'},
-                'monday': {'start': '09:00', 'end': '14:00'},
-                'tuesday': {'start': '09:00', 'end': '11:00'},
-                'wednesday': {'start': '09:00', 'end': '14:00'},
-                'thursday': {'start': '09:00', 'end': '11:00'}
-            }
-            working_hours = settings.get('working_hours', default_working_hours)
+            # Convert date to timezone-aware if it isn't already
+            timezone = pytz.timezone(calendar_settings.get('timezone', 'Asia/Jerusalem'))
+            if date.tzinfo is None:
+                date = timezone.localize(date)
             
-            # Get current day's working hours
             day_name = date.strftime('%A').lower()
-            if day_name not in working_hours:
-                logger.warning(f"No working hours defined for {day_name}")
+            working_hours = calendar_settings.get('working_hours', {}).get(day_name)
+            
+            if not working_hours:
+                logger.info(f"No working hours defined for {day_name}, skipping")
                 return []
-                
-            day_hours = working_hours[day_name]
             
             # Parse working hours
-            start_hour, start_minute = map(int, day_hours['start'].split(':'))
-            end_hour, end_minute = map(int, day_hours['end'].split(':'))
+            start_time = datetime.strptime(working_hours['start'], '%H:%M').time()
+            end_time = datetime.strptime(working_hours['end'], '%H:%M').time()
             
-            # Create datetime objects for start and end of working day
-            day_start = self.timezone.localize(date.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0))
-            day_end = self.timezone.localize(date.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0))
+            # Create timezone-aware datetime objects for start and end
+            start_datetime = timezone.localize(datetime.combine(date.date(), start_time))
+            end_datetime = timezone.localize(datetime.combine(date.date(), end_time))
             
-            # Calculate minimum start time (2 hours from now)
-            now = datetime.now(self.timezone)
-            min_start_time = now + timedelta(hours=2)
+            # Get slot duration and buffer
+            slot_duration = timedelta(minutes=calendar_settings.get('meeting_duration', 45))
+            buffer_time = timedelta(minutes=calendar_settings.get('buffer_between_meetings', 15))
             
-            # If the date is before today or if it's today but all slots would be in the past, return empty list
-            if date.date() < now.date() or (date.date() == now.date() and min_start_time >= day_end):
-                logger.debug(f"Date {date.date()} is in the past or no future slots available")
-                return []
+            # Generate all possible slots
+            slots = []
+            current_time = start_datetime
+            while current_time + slot_duration <= end_datetime:
+                slot = TimeSlot(
+                    start_time=current_time,
+                    end_time=current_time + slot_duration
+                )
+                slots.append(slot)
+                current_time += slot_duration + buffer_time
             
-            # Adjust day_start if minimum start time is later
-            if date.date() == now.date() and min_start_time > day_start:
-                day_start = min_start_time
-            
-            # Get existing events
-            events_result = self.service.events().list(
-                calendarId=settings.get('calendar_id', 'primary'),
-                timeMin=day_start.isoformat(),
-                timeMax=day_end.isoformat(),
-                singleEvents=True,
-                orderBy='startTime'
-            ).execute()
-            events = events_result.get('items', [])
-            
-            # Create time slots
-            slot_duration = timedelta(minutes=settings.get('slot_duration_minutes', 60))
-            buffer_time = timedelta(minutes=settings.get('buffer_between_meetings', 15))
-            current_slot_start = day_start
-            available_slots = []
-            
-            while current_slot_start + slot_duration <= day_end:
-                slot_end = current_slot_start + slot_duration
-                is_available = True
-                
-                # Check if slot overlaps with any existing event
-                for event in events:
-                    event_start = datetime.fromisoformat(event['start'].get('dateTime', event['start'].get('date')))
-                    event_end = datetime.fromisoformat(event['end'].get('dateTime', event['end'].get('date')))
-                    
-                    # Check for overlap including buffer time
-                    slot_start_with_buffer = current_slot_start - buffer_time
-                    slot_end_with_buffer = slot_end + buffer_time
-                    
-                    if (slot_start_with_buffer < event_end and slot_end_with_buffer > event_start):
-                        is_available = False
-                        # Jump to the end of this event plus buffer for next slot
-                        current_slot_start = event_end + buffer_time
-                        break
-                
-                if is_available:
-                    available_slots.append(TimeSlot(current_slot_start, slot_end))
-                    current_slot_start = slot_end + buffer_time
-                elif not is_available and current_slot_start == day_start:
-                    # If first slot is not available, add buffer time
-                    current_slot_start += buffer_time
+            # Filter out booked slots
+            available_slots = self.filter_booked_slots(slots, calendar_settings)
             
             return available_slots
             
         except Exception as e:
-            logger.error(f"Error getting available slots: {e}")
+            logger.error(f"Error getting available slots: {str(e)}")
+            logger.error(f"Stack trace: {traceback.format_exc()}")
             return []
 
     def schedule_meeting(self, settings: Dict, slot: TimeSlot, attendee_data: Dict) -> Optional[Dict]:
