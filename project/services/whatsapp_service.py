@@ -16,12 +16,15 @@ from dotenv import load_dotenv
 import re
 from .calendar_service import CalendarService, TimeSlot
 from pyairtable import Api
+from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
 
 load_dotenv()
 
 # Get environment variables
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
 AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
+GOOGLE_CREDENTIALS = os.getenv("GOOGLE_SERVICE_ACCOUNT")
 
 # Initialize Gemini
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
@@ -38,12 +41,16 @@ class WhatsAppService:
             self.airtable = Api(AIRTABLE_API_KEY)
             logger.info("Initialized Airtable client")
             
+            # Initialize Google People API client
+            credentials = Credentials.from_authorized_user_info(json.loads(GOOGLE_CREDENTIALS))
+            self.people_service = build('people', 'v1', credentials=credentials)
+            logger.info("Initialized Google People API client")
+            
             self.surveys = self.load_surveys()
             self.survey_state = {}  # Track survey state for each user
             self.reflection_cache = {}  # Cache for AI reflections
-            self.airtable_cache = {}  # Cache for Airtable records
-            self.airtable_cache_timeout = 300  # 5 minutes
-            self.contacts_table_id = "tblContacts"  # Airtable table ID for contacts
+            self.contacts_cache = {}  # Cache for contacts
+            self.contacts_cache_timeout = 300  # 5 minutes
             
             # Initialize calendar manager
             self.calendar_manager = CalendarService()
@@ -1137,60 +1144,106 @@ class WhatsAppService:
             return None
 
     async def get_contact(self, chat_id: str) -> Optional[Dict]:
-        """Get contact from Airtable if exists"""
+        """Search for contact in Google People API"""
         try:
             # Check cache first
             cache_key = f"contact_{chat_id}"
-            if cache_key in self.airtable_cache:
-                cache_entry = self.airtable_cache[cache_key]
-                if (datetime.now() - cache_entry["timestamp"]).total_seconds() < self.airtable_cache_timeout:
+            if cache_key in self.contacts_cache:
+                cache_entry = self.contacts_cache[cache_key]
+                if (datetime.now() - cache_entry["timestamp"]).total_seconds() < self.contacts_cache_timeout:
                     return cache_entry["data"]
             
-            # Query Airtable
-            table = self.airtable.table(AIRTABLE_BASE_ID, self.contacts_table_id)
-            records = table.all(formula=f"{{מזהה צ'אט בוואטסאפ}} = '{chat_id}'")
+            # Extract phone number from chat_id
+            phone_number = chat_id.split('@')[0]
             
-            if records:
-                contact = records[0]["fields"]
-                # Update cache
-                self.airtable_cache[cache_key] = {
-                    "timestamp": datetime.now(),
-                    "data": contact
-                }
-                return contact
+            # Search for contact using phone number
+            results = self.people_service.people().searchContacts(
+                query=phone_number,
+                readMask='names,phoneNumbers',
+                sources=['READ_SOURCE_TYPE_CONTACT']
+            ).execute()
+            
+            if 'results' in results:
+                for person in results.get('results', []):
+                    person_data = person.get('person', {})
+                    phone_numbers = person_data.get('phoneNumbers', [])
+                    
+                    # Check if any phone number matches
+                    for phone in phone_numbers:
+                        if phone.get('value', '').replace(' ', '').replace('-', '').endswith(phone_number):
+                            contact = {
+                                'שם מלא': person_data.get('names', [{}])[0].get('displayName', ''),
+                                'מזהה צ\'אט בוואטסאפ': chat_id,
+                                'resource_name': person_data.get('resourceName')
+                            }
+                            
+                            # Update cache
+                            self.contacts_cache[cache_key] = {
+                                "timestamp": datetime.now(),
+                                "data": contact
+                            }
+                            
+                            return contact
             
             return None
             
         except Exception as e:
             logger.error(f"Error getting contact: {str(e)}")
+            if hasattr(e, 'response') and e.response:
+                logger.error(f"Response content: {e.response.text}")
             return None
 
     async def save_contact(self, chat_id: str, full_name: str) -> Optional[str]:
-        """Save new contact to Airtable"""
+        """Create new contact in Google People API"""
         try:
             logger.info(f"Saving new contact {full_name} with chat_id {chat_id}")
             
-            record = {
-                "מזהה צ'אט בוואטסאפ": chat_id,
-                "שם מלא": full_name,
-                "תיוג": f"ליד- {full_name}"
+            # Extract phone number from chat_id
+            phone_number = chat_id.split('@')[0]
+            
+            # Create contact
+            contact_body = {
+                'names': [
+                    {
+                        'givenName': full_name,
+                        'displayName': full_name
+                    }
+                ],
+                'phoneNumbers': [
+                    {
+                        'value': phone_number,
+                        'type': 'mobile'
+                    }
+                ]
             }
             
-            table = self.airtable.table(AIRTABLE_BASE_ID, self.contacts_table_id)
-            response = table.create(record)
+            result = self.people_service.people().createContact(
+                body=contact_body
+            ).execute()
             
-            # Update cache
-            cache_key = f"contact_{chat_id}"
-            self.airtable_cache[cache_key] = {
-                "timestamp": datetime.now(),
-                "data": record
-            }
+            if result:
+                contact = {
+                    'שם מלא': full_name,
+                    'מזהה צ\'אט בוואטסאפ': chat_id,
+                    'resource_name': result.get('resourceName')
+                }
+                
+                # Update cache
+                cache_key = f"contact_{chat_id}"
+                self.contacts_cache[cache_key] = {
+                    "timestamp": datetime.now(),
+                    "data": contact
+                }
+                
+                logger.info(f"Successfully saved contact: {result.get('resourceName')}")
+                return result.get('resourceName')
             
-            logger.info(f"Successfully saved contact: {response}")
-            return response["id"]
+            return None
             
         except Exception as e:
             logger.error(f"Error saving contact: {str(e)}")
+            if hasattr(e, 'response') and e.response:
+                logger.error(f"Response content: {e.response.text}")
             return None
 
 def load_surveys_from_json() -> List[SurveyDefinition]:
