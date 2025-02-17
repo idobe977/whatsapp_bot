@@ -10,11 +10,13 @@
   "calendar_settings": {
     "calendar_id": "idobe97@gmail.com",
     "working_hours": {
-      "sunday": {"start": "09:00", "end": "14:00"},
-      "monday": {"start": "09:00", "end": "14:00"},
-      "tuesday": {"start": "09:00", "end": "11:00"},
-      "wednesday": {"start": "09:00", "end": "14:00"},
-      "thursday": {"start": "09:00", "end": "11:00"}
+      "sunday": {"start": "09:00", "end": "15:15"},
+      "monday": {"start": "09:00", "end": "15:15"},
+      "tuesday": {"start": "09:00", "end": "12:15"},
+      "wednesday": {"start": "09:00", "end": "15:15"},
+      "thursday": {"start": "09:00", "end": "12:15"},
+      "friday": null,
+      "saturday": null
     },
     "slot_duration_minutes": 30,
     "buffer_between_meetings": 15,
@@ -77,9 +79,9 @@
     {
       "id": "קביעת פגישה",
       "type": "meeting_scheduler",
-      "text": "באיזה יום בשבוע הקרוב יהיה לך נוח להיפגש? 📅 \n אם השעות ביום הנבחר לא מתאימות, ניתן לחזור ולבחור ביום אחר",
+      "text": "באיזה יום יהיה לך נוח להיפגש? 📅 \n אם השעות ביום הנבחר לא מתאימות, ניתן לחזור ולבחור ביום אחר",
       "confirmation_message": "מעולה! קבענו פגישה ל-{{meeting_time}} 🎯\nאשלח לך תזכורת לפני הפגישה 📱",
-      "no_slots_message": "מצטערים, אין זמנים פנויים בשבוע הקרוב. אנא נסה שוב מאוחר יותר או צור קשר ישירות.",
+      "no_slots_message": "מצטער, אין זמנים פנויים בשבוע הקרוב. אנא נסה שוב מאוחר יותר או צור קשר ישירות.",
       "reflection": {
         "type": "empathetic",
         "enabled": false
