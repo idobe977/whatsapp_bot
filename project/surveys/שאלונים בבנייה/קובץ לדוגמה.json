@@ -14,11 +14,13 @@
   "calendar_settings": {
     "calendar_id": "idobe97@gmail.com",
     "working_hours": {
-      "sunday": {"start": "09:00", "end": "17:00"},
-      "monday": {"start": "09:00", "end": "17:00"},
-      "tuesday": {"start": "09:00", "end": "17:00"},
-      "wednesday": {"start": "09:00", "end": "17:00"},
-      "thursday": {"start": "09:00", "end": "17:00"}
+      "sunday": {"start": "09:00", "end": "15:15"},
+      "monday": {"start": "09:00", "end": "15:15"},
+      "tuesday": {"start": "09:00", "end": "12:15"},
+      "wednesday": {"start": "09:00", "end": "15:15"},
+      "thursday": {"start": "09:00", "end": "12:15"},
+      "friday": null,
+      "saturday": null
     },
     "meeting_duration": 45,
     "buffer_between_meetings": 15,
