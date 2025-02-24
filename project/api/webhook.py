@@ -33,6 +33,23 @@ async def handle_webhook_data(webhook_data: Dict, whatsapp: WhatsAppService) -> 
             logger.debug(f"Poll data: {poll_data}")
             await whatsapp.handle_poll_response(chat_id, poll_data)
             
+        elif message_data["typeMessage"] in ["imageMessage", "documentMessage"]:
+            file_data = message_data["fileMessageData"]
+            file_url = file_data["downloadUrl"]
+            caption = file_data.get("caption", "")
+            file_name = file_data.get("fileName", "")
+            mime_type = file_data.get("mimeType", "")
+            
+            logger.info(f"Received file message. Type: {message_data['typeMessage']}, URL: {file_url}")
+            await whatsapp.handle_file_message(
+                chat_id=chat_id,
+                file_url=file_url,
+                file_type=message_data["typeMessage"],
+                caption=caption,
+                file_name=file_name,
+                mime_type=mime_type
+            )
+            
     except Exception as e:
         logger.error(f"Error handling webhook data: {str(e)}")
         raise 

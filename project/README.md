@@ -44,6 +44,12 @@ For secure deployment (e.g., on Render.com):
 - Automatic summary generation using Gemini AI
 - Empathetic and professional AI-powered reflections
 - Timeout handling for inactive sessions
+- File handling capabilities:
+  - Display PDF documents and images to users
+  - Request and process file uploads from users
+  - Support for file captions and follow-up questions
+  - Automatic file type validation
+  - Secure file storage in Airtable
 
 ## Prerequisites
 
@@ -123,9 +129,20 @@ GOOGLE_SERVICE_ACCOUNT={"type":"service_account","project_id":"..."}
   "questions": [
     {
       "id": "question_id",
-      "type": "text/poll",
+      "type": "text/poll/file_display/file_upload",
       "text": "Question text {{airtable_field}}",
       "options": ["option1", "option2"],
+      "file": {
+        "path": "path/to/file",
+        "caption": "File description",
+        "type": "document/image"
+      },
+      "allowed_types": ["pdf", "image"],
+      "follow_up": {
+        "id": "follow_up_question",
+        "type": "text",
+        "text": "Follow-up question text"
+      },
       "reflection": {
         "type": "empathetic/professional",
         "enabled": true
@@ -188,4 +205,54 @@ python server.py
 
 ## Support
 
-For questions and support, contact the developer. 
+For questions and support, contact the developer.
+
+## File Handling
+
+The bot supports two types of file interactions:
+
+1. **Displaying Files (`file_display`)**:
+   - Supports PDF documents and images
+   - Can include captions with the files
+   - Allows follow-up questions for feedback
+   - Example:
+   ```json
+   {
+     "id": "document_review",
+     "type": "file_display",
+     "text": "Please review this document:",
+     "file": {
+       "path": "documents/terms.pdf",
+       "caption": "Terms of Service 📄",
+       "type": "document"
+     },
+     "follow_up": {
+       "id": "document_feedback",
+       "type": "text",
+       "text": "What do you think about the document?"
+     }
+   }
+   ```
+
+2. **Requesting Files (`file_upload`)**:
+   - Can specify allowed file types
+   - Supports validation of uploaded files
+   - Files are stored securely in Airtable
+   - Example:
+   ```json
+   {
+     "id": "signature_upload",
+     "type": "file_upload",
+     "text": "Please upload the signed document:",
+     "allowed_types": ["pdf", "image"]
+   }
+   ```
+
+### File Storage
+
+- Files are automatically converted to base64 for storage in Airtable
+- Maximum file size: 100MB (Green API limitation)
+- Supported file types:
+  - Images (JPEG, PNG, GIF)
+  - Documents (PDF)
+  - Other file types as supported by WhatsApp 
