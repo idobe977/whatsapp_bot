@@ -83,28 +83,80 @@ class WhatsAppService:
     async def handle_text_message(self, chat_id: str, text: str, sender_name: str = "") -> None:
         """Handle incoming text messages"""
         try:
-            # Check if we have an active survey for this chat
-            if chat_id not in self.survey_state:
-                # Check if this is a start command
-                if text.strip().lower() == "/start":
-                    await self.start_survey(chat_id, sender_name)
+            logger.info(f"Processing text message from {chat_id} (sender: {sender_name})")
+            logger.debug(f"Message content: {text[:100]}...")  # Log first 100 chars
+            
+            # Check for stop phrases
+            stop_phrases = ["הפסקת שאלון", "בוא נפסיק"]
+            if chat_id in self.survey_state and any(phrase in text.lower() for phrase in stop_phrases):
+                logger.info(f"User requested to stop survey: {chat_id}")
+                await self.send_message_with_retry(chat_id, "השאלון הופסק. תודה על ההשתתפות!")
+                
+                # Update Airtable status
+                state = self.survey_state[chat_id]
+                await self.update_airtable_record(
+                    state["record_id"],
+                    {"סטטוס": "בוטל"},
+                    state["survey"]
+                )
+                
+                # Clean up state
+                del self.survey_state[chat_id]
                 return
 
-            state = self.survey_state[chat_id]
-            state['last_activity'] = datetime.now()
-            survey = state["survey"]
-            current_question = survey.questions[state["current_question"]]
+            # First check if user is in middle of a survey
+            if chat_id in self.survey_state:
+                state = self.survey_state[chat_id]
+                state['last_activity'] = datetime.now()
+                survey = state["survey"]
+                current_question = survey.questions[state["current_question"]]
 
-            # Check if this is a file upload question and we already have a file
-            if "last_file_upload" in state and state["last_file_upload"]["question_id"] == current_question["id"]:
-                # Skip processing text message if we already have a file for this question
+                # Check if this is a file upload question and we already have a file
+                if "last_file_upload" in state and state["last_file_upload"]["question_id"] == current_question["id"]:
+                    # Skip processing text message if we already have a file for this question
+                    return
+
+                # Process the answer
+                await self.process_survey_answer(chat_id, {
+                    "type": "text",
+                    "content": text
+                })
                 return
 
-            # Process the answer
-            await self.process_survey_answer(chat_id, {
-                "type": "text",
-                "content": text
-            })
+            # If not in survey, check for trigger phrase
+            for survey in self.surveys:
+                logger.debug(f"Checking triggers for survey: {survey.name}")
+                
+                for trigger in survey.trigger_phrases:
+                    if trigger.lower() in text.lower():
+                        logger.info(f"Found trigger phrase '{trigger}' for survey: {survey.name}")
+                        
+                        # Create initial record in Airtable
+                        record_id = self.create_initial_record(chat_id, sender_name, survey)
+                        if record_id:
+                            # Initialize survey state
+                            self.survey_state[chat_id] = {
+                                "current_question": 0,
+                                "answers": {},
+                                "record_id": record_id,
+                                "survey": survey,
+                                "last_activity": datetime.now()
+                            }
+                            
+                            # Send welcome message
+                            await self.send_message_with_retry(chat_id, survey.messages["welcome"])
+                            await asyncio.sleep(1.5)  # Add a small delay between messages
+                            
+                            # Send first question
+                            await self.send_next_question(chat_id)
+                        else:
+                            await self.send_message_with_retry(
+                                chat_id, 
+                                "מצטערים, הייתה שגיאה בהתחלת השאלון. נא לנסות שוב."
+                            )
+                        return
+                    
+            logger.info(f"No trigger phrases found in message from {chat_id}")
 
         except Exception as e:
             logger.error(f"Error handling text message: {str(e)}")
