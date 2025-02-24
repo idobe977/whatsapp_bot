@@ -926,7 +926,15 @@ class WhatsAppService:
             if cached_record:
                 logger.info("[update_airtable_record] נמצאה רשומה במטמון")
                 # Merge new data with cached record
-                cached_record.update(data)
+                for key, value in data.items():
+                    # אם זה מערך של אובייקטים (למשל קבצים), נחליף את הערך הקיים
+                    if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
+                        logger.debug(f"[update_airtable_record] מחליף ערך קיים בשדה {key} עם מערך של אובייקטים")
+                        cached_record[key] = value
+                    else:
+                        # אחרת נעדכן את הערך הקיים
+                        cached_record[key] = value
+                
                 self.cache_airtable_record(record_id, survey.airtable_table_id, cached_record)
                 logger.debug(f"[update_airtable_record] רשומה מאוחדת: {json.dumps(cached_record, ensure_ascii=False)}")
             
@@ -936,11 +944,25 @@ class WhatsAppService:
             # וידוא שהנתונים בפורמט הנכון
             processed_data = {}
             for key, value in data.items():
-                logger.debug(f"[update_airtable_record] מעבד שדה: {key}, ערך: {value}")
+                logger.debug(f"[update_airtable_record] מעבד שדה: {key}, סוג: {type(value).__name__}")
+                
+                # טיפול מיוחד בקבצים ומערכים של אובייקטים
                 if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
-                    # אם זה מערך של אובייקטים (למשל קבצים), נשאיר כמו שהוא
-                    processed_data[key] = value
-                    logger.debug(f"[update_airtable_record] שדה {key} מכיל מערך של אובייקטים")
+                    # בדיקה שכל האובייקטים במערך מכילים את השדות הנדרשים לקבצים
+                    if all(isinstance(item, dict) and "url" in item for item in value):
+                        logger.debug(f"[update_airtable_record] שדה {key} מכיל מערך של קבצים תקין")
+                        processed_data[key] = value
+                    else:
+                        logger.warning(f"[update_airtable_record] שדה {key} מכיל מערך של אובייקטים לא תקין")
+                        logger.debug(f"[update_airtable_record] ערך: {json.dumps(value, ensure_ascii=False)}")
+                        # ננסה לתקן את הפורמט אם אפשר
+                        if all(isinstance(item, dict) for item in value):
+                            logger.info(f"[update_airtable_record] מנסה לתקן את הפורמט של שדה {key}")
+                            processed_data[key] = value
+                        else:
+                            logger.error(f"[update_airtable_record] לא ניתן לתקן את הפורמט של שדה {key}")
+                            # נשמור כמחרוזת JSON אם לא ניתן לתקן
+                            processed_data[key] = json.dumps(value, ensure_ascii=False)
                 else:
                     # אחרת נשמור את הערך כמו שהוא
                     processed_data[key] = value
@@ -949,14 +971,16 @@ class WhatsAppService:
             logger.info("[update_airtable_record] שולח עדכון לאירטייבל")
             logger.debug(f"[update_airtable_record] מידע מעובד לשליחה: {json.dumps(processed_data, ensure_ascii=False)}")
             
-            table.update(record_id, processed_data)
+            response = table.update(record_id, processed_data)
             logger.info("[update_airtable_record] העדכון הושלם בהצלחה")
+            logger.debug(f"[update_airtable_record] תגובת אירטייבל: {json.dumps(response, ensure_ascii=False)}")
             return True
             
         except Exception as e:
             logger.error(f"[update_airtable_record] שגיאה בעדכון רשומת אירטייבל: {e}")
-            if hasattr(e, 'response'):
+            if hasattr(e, 'response') and hasattr(e.response, 'text'):
                 logger.error(f"[update_airtable_record] תגובת API של אירטייבל: {e.response.text}")
+            logger.error(f"[update_airtable_record] פרטי השגיאה: {traceback.format_exc()}")
             return False
 
     def clean_text_for_airtable(self, text: str) -> str:
@@ -1283,6 +1307,7 @@ class WhatsAppService:
         logger.info(f"[handle_file_message] התחלת טיפול בקובץ מ: {chat_id}")
         logger.info(f"[handle_file_message] סוג קובץ: {file_type}, URL: {file_url}")
         logger.info(f"[handle_file_message] שם קובץ: {file_name}, MIME: {mime_type}")
+        logger.info(f"[handle_file_message] כיתוב: {caption if caption else 'ללא כיתוב'}")
 
         if chat_id not in self.survey_state:
             logger.info(f"[handle_file_message] אין שאלון פעיל עבור: {chat_id}")
@@ -1296,6 +1321,8 @@ class WhatsAppService:
             question_id = current_question["id"]
             
             logger.info(f"[handle_file_message] מעבד קובץ עבור שאלה: {question_id}")
+            logger.info(f"[handle_file_message] מצב נוכחי בשאלון - שאלה מספר: {state['current_question'] + 1} מתוך {len(survey.questions)}")
+            logger.debug(f"[handle_file_message] פרטי השאלה הנוכחית: {json.dumps(current_question, ensure_ascii=False)}")
 
             # וידוא שה-URL נגיש
             try:
@@ -1303,11 +1330,14 @@ class WhatsAppService:
                     async with session.head(file_url) as response:
                         if response.status != 200:
                             logger.error(f"[handle_file_message] ה-URL של הקובץ לא נגיש: {file_url}")
+                            logger.error(f"[handle_file_message] קוד תגובה: {response.status}")
                             await self.send_message_with_retry(chat_id, "מצטערים, לא ניתן לשמור את הקובץ כרגע. נא לנסות שוב.")
                             return
                         logger.info(f"[handle_file_message] URL הקובץ נגיש")
+                        logger.debug(f"[handle_file_message] Headers של הקובץ: {dict(response.headers)}")
             except Exception as e:
                 logger.error(f"[handle_file_message] שגיאה בבדיקת נגישות הקובץ: {e}")
+                logger.error(f"[handle_file_message] פרטי השגיאה: {traceback.format_exc()}")
                 await self.send_message_with_retry(chat_id, "מצטערים, לא ניתן לשמור את הקובץ כרגע. נא לנסות שוב.")
                 return
 
@@ -1319,19 +1349,29 @@ class WhatsAppService:
                     if guessed_type:
                         mime_type = guessed_type
             logger.info(f"[handle_file_message] MIME type סופי: {mime_type}")
+            logger.debug(f"[handle_file_message] תהליך קביעת MIME type: מקורי={mime_type}, שם קובץ={file_name}")
 
             # יצירת שם קובץ אם לא סופק
             if not file_name:
                 extension = mimetypes.guess_extension(mime_type) or ''
                 file_name = f"file_{datetime.now().strftime('%Y%m%d_%H%M%S')}{extension}"
+                logger.info(f"[handle_file_message] נוצר שם קובץ אוטומטי: {file_name}")
             logger.info(f"[handle_file_message] שם קובץ סופי: {file_name}")
 
             # הכנת הנתונים לאירטייבל בפורמט הנכון
+            # אירטייבל מצפה למערך של אובייקטים עם השדות url, filename, ו-type
             attachments = [{
                 "url": file_url,
                 "filename": file_name,
                 "type": mime_type
             }]
+            
+            # בדיקה שהפורמט תקין
+            if not isinstance(attachments, list) or not all(isinstance(item, dict) and "url" in item for item in attachments):
+                logger.error(f"[handle_file_message] פורמט הקובץ לא תקין: {json.dumps(attachments, ensure_ascii=False)}")
+                await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד הקובץ. נא לנסות שוב.")
+                return
+                
             logger.info(f"[handle_file_message] מידע הקובץ לאירטייבל: {json.dumps(attachments, ensure_ascii=False)}")
 
             # שמירה באירטייבל
@@ -1343,18 +1383,24 @@ class WhatsAppService:
             logger.info(f"[handle_file_message] מנסה לשמור קובץ באירטייבל עבור שאלה {question_id}")
             logger.debug(f"[handle_file_message] מידע לעדכון: {json.dumps(update_data, ensure_ascii=False)}")
 
-            if await self.update_airtable_record(state["record_id"], update_data, survey):
+            # ניסיון לשמור באירטייבל
+            success = await self.update_airtable_record(state["record_id"], update_data, survey)
+            
+            if success:
                 logger.info(f"[handle_file_message] הקובץ נשמר בהצלחה באירטייבל עבור שאלה {question_id}")
                 
                 # שמירת מידע על הקובץ במצב השאלון
                 state["last_file_upload"] = {
                     "question_id": question_id,
-                    "file_url": file_url
+                    "file_url": file_url,
+                    "file_name": file_name,
+                    "mime_type": mime_type
                 }
-                logger.info(f"[handle_file_message] עודכן מידע הקובץ האחרון במצב השאלון")
+                logger.info(f"[handle_file_message] עודכן מידע הקובץ האחרון במצב השאלון: {json.dumps(state['last_file_upload'], ensure_ascii=False)}")
                 
                 # מעבר לשאלה הבאה
                 state["current_question"] += 1
+                logger.info(f"[handle_file_message] מתקדם לשאלה הבאה (מספר {state['current_question'] + 1})")
                 await self.send_next_question(chat_id)
             else:
                 logger.error(f"[handle_file_message] נכשל בשמירת הקובץ באירטייבל עבור שאלה {question_id}")
