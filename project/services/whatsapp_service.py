@@ -83,69 +83,29 @@ class WhatsAppService:
     async def handle_text_message(self, chat_id: str, text: str, sender_name: str = "") -> None:
         """Handle incoming text messages"""
         try:
-            logger.info(f"Processing text message from {chat_id} (sender: {sender_name})")
-            logger.debug(f"Message content: {text[:100]}...")  # Log first 100 chars
-            
-            # Check for stop phrases
-            stop_phrases = ["הפסקת שאלון", "בוא נפסיק"]
-            if chat_id in self.survey_state and any(phrase in text.lower() for phrase in stop_phrases):
-                logger.info(f"User requested to stop survey: {chat_id}")
-                await self.send_message_with_retry(chat_id, "השאלון הופסק. תודה על ההשתתפות!")
-                
-                # Update Airtable status
-                state = self.survey_state[chat_id]
-                await self.update_airtable_record(
-                    state["record_id"],
-                    {"סטטוס": "בוטל"},
-                    state["survey"]
-                )
-                
-                # Clean up state
-                del self.survey_state[chat_id]
-                return
-            
-            # First check if user is in middle of a survey
-            if chat_id in self.survey_state:
-                state = self.survey_state[chat_id]
-                # Process as answer to current question
-                await self.process_survey_answer(chat_id, {"type": "text", "content": text})
+            # Check if we have an active survey for this chat
+            if chat_id not in self.survey_state:
+                # Check if this is a start command
+                if text.strip().lower() == "/start":
+                    await self.start_survey(chat_id, sender_name)
                 return
 
-            # If not in survey, check for trigger phrase
-            for survey in self.surveys:
-                logger.debug(f"Checking triggers for survey: {survey.name}")
-                
-                for trigger in survey.trigger_phrases:
-                    if trigger.lower() in text.lower():
-                        logger.info(f"Found trigger phrase '{trigger}' for survey: {survey.name}")
-                        
-                        # Create initial record in Airtable
-                        record_id = self.create_initial_record(chat_id, sender_name, survey)
-                        if record_id:
-                            # Initialize survey state
-                            self.survey_state[chat_id] = {
-                                "current_question": 0,
-                                "answers": {},
-                                "record_id": record_id,
-                                "survey": survey,
-                                "last_activity": datetime.now()
-                            }
-                            
-                            # Send welcome message
-                            await self.send_message_with_retry(chat_id, survey.messages["welcome"])
-                            await asyncio.sleep(1.5)  # Add a small delay between messages
-                            
-                            # Send first question
-                            await self.send_next_question(chat_id)
-                        else:
-                            await self.send_message_with_retry(
-                                chat_id, 
-                                "מצטערים, הייתה שגיאה בהתחלת השאלון. נא לנסות שוב."
-                            )
-                        return
-            
-            logger.info(f"No trigger phrases found in message from {chat_id}")
-            
+            state = self.survey_state[chat_id]
+            state['last_activity'] = datetime.now()
+            survey = state["survey"]
+            current_question = survey.questions[state["current_question"]]
+
+            # Check if this is a file upload question and we already have a file
+            if "last_file_upload" in state and state["last_file_upload"]["question_id"] == current_question["id"]:
+                # Skip processing text message if we already have a file for this question
+                return
+
+            # Process the answer
+            await self.process_survey_answer(chat_id, {
+                "type": "text",
+                "content": text
+            })
+
         except Exception as e:
             logger.error(f"Error handling text message: {str(e)}")
             await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד ההודעה. נא לנסות שוב.")
@@ -1246,82 +1206,58 @@ class WhatsAppService:
             current_question = survey.questions[state["current_question"]]
             question_id = current_question["id"]
 
-            # Download the file
-            async with self.get_session() as session:
-                async with session.get(file_url) as response:
-                    if response.status != 200:
-                        logger.error(f"Failed to download file: HTTP {response.status}")
-                        await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בהורדת הקובץ. נא לנסות שוב.")
-                        return
-                    
-                    file_content = await response.read()
-
-            # Create a temporary file
-            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file_name)[1] if file_name else '') as temp_file:
-                temp_file.write(file_content)
-                temp_path = temp_file.name
-
+            # Verify the URL is publicly accessible
             try:
-                # Prepare file data for Airtable
-                file_size = len(file_content)  # Get file size in bytes
+                async with self.get_session() as session:
+                    async with session.head(file_url) as response:
+                        if response.status != 200:
+                            logger.error(f"File URL is not publicly accessible: {file_url}")
+                            await self.send_message_with_retry(chat_id, "מצטערים, לא ניתן לשמור את הקובץ כרגע. נא לנסות שוב.")
+                            return
+            except Exception as e:
+                logger.error(f"Error verifying file URL: {e}")
+                await self.send_message_with_retry(chat_id, "מצטערים, לא ניתן לשמור את הקובץ כרגע. נא לנסות שוב.")
+                return
+
+            # Make sure we have a valid mime type
+            if not mime_type:
+                mime_type = 'application/octet-stream'
+                if file_name:
+                    # Try to guess mime type from file extension
+                    guessed_type = mimetypes.guess_type(file_name)[0]
+                    if guessed_type:
+                        mime_type = guessed_type
+
+            # Prepare file data for Airtable
+            file_data = [{
+                "url": file_url,
+                "filename": file_name or f"file_{datetime.now().strftime('%Y%m%d_%H%M%S')}{os.path.splitext(file_name)[1] if file_name else ''}",
+                "type": mime_type
+            }]
+
+            # Save to Airtable
+            update_data = {
+                question_id: file_data,
+                "סטטוס": "בטיפול"
+            }
+
+            logger.debug(f"Updating Airtable with file data: {json.dumps(update_data, ensure_ascii=False)}")
+
+            if await self.update_airtable_record(state["record_id"], update_data, survey):
+                logger.info(f"Saved file for question {current_question['id']}")
                 
-                # Make sure we have a valid mime type
-                if not mime_type:
-                    mime_type = 'application/octet-stream'
-                    if file_name:
-                        # Try to guess mime type from file extension
-                        guessed_type = mimetypes.guess_type(file_name)[0]
-                        if guessed_type:
-                            mime_type = guessed_type
-
-                # Verify the URL is publicly accessible
-                try:
-                    async with self.get_session() as session:
-                        async with session.head(file_url) as response:
-                            if response.status != 200:
-                                logger.error(f"File URL is not publicly accessible: {file_url}")
-                                await self.send_message_with_retry(chat_id, "מצטערים, לא ניתן לשמור את הקובץ כרגע. נא לנסות שוב.")
-                                return
-                except Exception as e:
-                    logger.error(f"Error verifying file URL: {e}")
-                    await self.send_message_with_retry(chat_id, "מצטערים, לא ניתן לשמור את הקובץ כרגע. נא לנסות שוב.")
-                    return
-
-                file_data = [{
-                    "url": file_url,
-                    "filename": file_name or f"file{os.path.splitext(temp_path)[1]}",
-                    "type": mime_type,
-                    "size": file_size
-                }]
-
-                # Save to Airtable
-                update_data = {
-                    question_id: file_data,
-                    "סטטוס": "בטיפול"
+                # Save file info in state to prevent duplicate updates
+                state["last_file_upload"] = {
+                    "question_id": question_id,
+                    "file_url": file_url
                 }
-
-                logger.debug(f"Updating Airtable with file data: {json.dumps(update_data, ensure_ascii=False)}")
-
-                if await self.update_airtable_record(state["record_id"], update_data, survey):
-                    logger.info(f"Saved file for question {current_question['id']}")
-                    
-                    # Move to next question
-                    await self.process_survey_answer(chat_id, {
-                        "type": file_type,
-                        "content": caption or file_name or "קובץ",
-                        "file_url": file_url,
-                        "is_final": True
-                    })
-                else:
-                    logger.error("Failed to save file to Airtable")
-                    await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בשמירת הקובץ. נא לנסות שוב.")
-
-            finally:
-                # Clean up temporary file
-                try:
-                    os.unlink(temp_path)
-                except Exception as e:
-                    logger.error(f"Error deleting temporary file: {e}")
+                
+                # Move to next question
+                state["current_question"] += 1
+                await self.send_next_question(chat_id)
+            else:
+                logger.error("Failed to save file to Airtable")
+                await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בשמירת הקובץ. נא לנסות שוב.")
 
         except Exception as e:
             logger.error(f"Error handling file message: {str(e)}")
