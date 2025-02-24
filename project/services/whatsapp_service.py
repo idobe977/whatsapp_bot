@@ -16,6 +16,9 @@ from dotenv import load_dotenv
 import re
 from .calendar_service import CalendarService, TimeSlot
 from pyairtable import Api
+import base64
+import tempfile
+import mimetypes
 
 load_dotenv()
 
@@ -1230,6 +1233,100 @@ class WhatsAppService:
             if hasattr(e, 'response') and e.response:
                 logger.error(f"Response content: {e.response.text}")
             return None
+
+    async def handle_file_message(self, chat_id: str, file_url: str, file_type: str, caption: str = "", file_name: str = "", mime_type: str = "") -> None:
+        """Handle incoming file messages (images and documents)"""
+        if chat_id not in self.survey_state:
+            return
+
+        try:
+            state = self.survey_state[chat_id]
+            state['last_activity'] = datetime.now()
+            survey = state["survey"]
+            current_question = survey.questions[state["current_question"]]
+            question_id = current_question["id"]
+
+            # Download the file
+            async with self.get_session() as session:
+                async with session.get(file_url) as response:
+                    if response.status != 200:
+                        logger.error(f"Failed to download file: HTTP {response.status}")
+                        await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בהורדת הקובץ. נא לנסות שוב.")
+                        return
+                    
+                    file_content = await response.read()
+
+            # Create a temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file_name)[1] if file_name else '') as temp_file:
+                temp_file.write(file_content)
+                temp_path = temp_file.name
+
+            try:
+                # Prepare file data for Airtable
+                file_size = len(file_content)  # Get file size in bytes
+                
+                # Make sure we have a valid mime type
+                if not mime_type:
+                    mime_type = 'application/octet-stream'
+                    if file_name:
+                        # Try to guess mime type from file extension
+                        guessed_type = mimetypes.guess_type(file_name)[0]
+                        if guessed_type:
+                            mime_type = guessed_type
+
+                # Verify the URL is publicly accessible
+                try:
+                    async with self.get_session() as session:
+                        async with session.head(file_url) as response:
+                            if response.status != 200:
+                                logger.error(f"File URL is not publicly accessible: {file_url}")
+                                await self.send_message_with_retry(chat_id, "מצטערים, לא ניתן לשמור את הקובץ כרגע. נא לנסות שוב.")
+                                return
+                except Exception as e:
+                    logger.error(f"Error verifying file URL: {e}")
+                    await self.send_message_with_retry(chat_id, "מצטערים, לא ניתן לשמור את הקובץ כרגע. נא לנסות שוב.")
+                    return
+
+                file_data = [{
+                    "url": file_url,
+                    "filename": file_name or f"file{os.path.splitext(temp_path)[1]}",
+                    "type": mime_type,
+                    "size": file_size
+                }]
+
+                # Save to Airtable
+                update_data = {
+                    question_id: file_data,
+                    "סטטוס": "בטיפול"
+                }
+
+                logger.debug(f"Updating Airtable with file data: {json.dumps(update_data, ensure_ascii=False)}")
+
+                if await self.update_airtable_record(state["record_id"], update_data, survey):
+                    logger.info(f"Saved file for question {current_question['id']}")
+                    
+                    # Move to next question
+                    await self.process_survey_answer(chat_id, {
+                        "type": file_type,
+                        "content": caption or file_name or "קובץ",
+                        "file_url": file_url,
+                        "is_final": True
+                    })
+                else:
+                    logger.error("Failed to save file to Airtable")
+                    await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בשמירת הקובץ. נא לנסות שוב.")
+
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_path)
+                except Exception as e:
+                    logger.error(f"Error deleting temporary file: {e}")
+
+        except Exception as e:
+            logger.error(f"Error handling file message: {str(e)}")
+            logger.error(f"Stack trace: {traceback.format_exc()}")
+            await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד הקובץ. נא לנסות שוב.")
 
 def load_surveys_from_json() -> List[SurveyDefinition]:
     """Load all survey definitions from JSON files in the surveys directory"""
