@@ -1258,12 +1258,12 @@ class WhatsAppService:
             current_question = survey.questions[state["current_question"]]
             question_id = current_question["id"]
 
-            # Verify the URL is publicly accessible
+            # וידוא שה-URL נגיש
             try:
                 async with self.get_session() as session:
                     async with session.head(file_url) as response:
                         if response.status != 200:
-                            logger.error(f"File URL is not publicly accessible: {file_url}")
+                            logger.error(f"File URL is not accessible: {file_url}")
                             await self.send_message_with_retry(chat_id, "מצטערים, לא ניתן לשמור את הקובץ כרגע. נא לנסות שוב.")
                             return
             except Exception as e:
@@ -1271,25 +1271,24 @@ class WhatsAppService:
                 await self.send_message_with_retry(chat_id, "מצטערים, לא ניתן לשמור את הקובץ כרגע. נא לנסות שוב.")
                 return
 
-            # Make sure we have a valid mime type
+            # וידוא סוג הקובץ
             if not mime_type:
                 mime_type = 'application/octet-stream'
                 if file_name:
-                    # Try to guess mime type from file extension
                     guessed_type = mimetypes.guess_type(file_name)[0]
                     if guessed_type:
                         mime_type = guessed_type
 
-            # Prepare file data for Airtable
+            # הכנת הנתונים לאירטייבל בפורמט הנכון
             file_data = [{
                 "url": file_url,
                 "filename": file_name or f"file_{datetime.now().strftime('%Y%m%d_%H%M%S')}{os.path.splitext(file_name)[1] if file_name else ''}",
                 "type": mime_type
             }]
 
-            # Save to Airtable
+            # שמירה באירטייבל
             update_data = {
-                question_id: file_data,
+                question_id: file_data,  # חשוב: זה חייב להיות מערך של אובייקטים
                 "סטטוס": "בטיפול"
             }
 
@@ -1298,13 +1297,13 @@ class WhatsAppService:
             if await self.update_airtable_record(state["record_id"], update_data, survey):
                 logger.info(f"Saved file for question {current_question['id']}")
                 
-                # Save file info in state to prevent duplicate updates
+                # שמירת מידע על הקובץ במצב השאלון למניעת עדכונים כפולים
                 state["last_file_upload"] = {
                     "question_id": question_id,
                     "file_url": file_url
                 }
                 
-                # Move to next question
+                # מעבר לשאלה הבאה
                 state["current_question"] += 1
                 await self.send_next_question(chat_id)
             else:
