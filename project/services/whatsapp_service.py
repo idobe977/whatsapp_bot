@@ -920,11 +920,25 @@ class WhatsAppService:
             
             # Update Airtable directly
             table = self.airtable.table(AIRTABLE_BASE_ID, survey.airtable_table_id)
-            table.update(record_id, data)
+            
+            # וידוא שהנתונים בפורמט הנכון
+            processed_data = {}
+            for key, value in data.items():
+                if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
+                    # אם זה מערך של אובייקטים (למשל קבצים), נשאיר כמו שהוא
+                    processed_data[key] = value
+                else:
+                    # אחרת נשמור את הערך כמו שהוא
+                    processed_data[key] = value
+            
+            logger.debug(f"Processed data for Airtable: {json.dumps(processed_data, ensure_ascii=False)}")
+            table.update(record_id, processed_data)
             return True
             
         except Exception as e:
             logger.error(f"Error updating Airtable record: {e}")
+            if hasattr(e, 'response'):
+                logger.error(f"Airtable API response: {e.response.text}")
             return False
 
     def clean_text_for_airtable(self, text: str) -> str:
@@ -1249,6 +1263,7 @@ class WhatsAppService:
     async def handle_file_message(self, chat_id: str, file_url: str, file_type: str, caption: str = "", file_name: str = "", mime_type: str = "") -> None:
         """Handle incoming file messages (images and documents)"""
         if chat_id not in self.survey_state:
+            logger.info(f"No active survey for chat_id: {chat_id}")
             return
 
         try:
@@ -1279,25 +1294,31 @@ class WhatsAppService:
                     if guessed_type:
                         mime_type = guessed_type
 
+            # יצירת שם קובץ אם לא סופק
+            if not file_name:
+                extension = mimetypes.guess_extension(mime_type) or ''
+                file_name = f"file_{datetime.now().strftime('%Y%m%d_%H%M%S')}{extension}"
+
             # הכנת הנתונים לאירטייבל בפורמט הנכון
-            file_data = [{
+            attachments = [{
                 "url": file_url,
-                "filename": file_name or f"file_{datetime.now().strftime('%Y%m%d_%H%M%S')}{os.path.splitext(file_name)[1] if file_name else ''}",
+                "filename": file_name,
                 "type": mime_type
             }]
 
             # שמירה באירטייבל
             update_data = {
-                question_id: file_data,  # חשוב: זה חייב להיות מערך של אובייקטים
+                question_id: attachments,
                 "סטטוס": "בטיפול"
             }
 
-            logger.debug(f"Updating Airtable with file data: {json.dumps(update_data, ensure_ascii=False)}")
+            logger.info(f"Attempting to save file to Airtable for question {question_id}")
+            logger.debug(f"Update data: {json.dumps(update_data, ensure_ascii=False)}")
 
             if await self.update_airtable_record(state["record_id"], update_data, survey):
-                logger.info(f"Saved file for question {current_question['id']}")
+                logger.info(f"Successfully saved file to Airtable for question {question_id}")
                 
-                # שמירת מידע על הקובץ במצב השאלון למניעת עדכונים כפולים
+                # שמירת מידע על הקובץ במצב השאלון
                 state["last_file_upload"] = {
                     "question_id": question_id,
                     "file_url": file_url
@@ -1307,7 +1328,7 @@ class WhatsAppService:
                 state["current_question"] += 1
                 await self.send_next_question(chat_id)
             else:
-                logger.error("Failed to save file to Airtable")
+                logger.error(f"Failed to save file to Airtable for question {question_id}")
                 await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בשמירת הקובץ. נא לנסות שוב.")
 
         except Exception as e:
