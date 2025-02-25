@@ -53,6 +53,10 @@ async def webhook(request: Request):
             logger.debug(f"Poll data: {poll_data}")
             await whatsapp.handle_poll_response(chat_id, poll_data)
             
+        elif message_data["typeMessage"] in ["imageMessage", "documentMessage", "videoMessage"]:
+            logger.info(f"Received file message of type: {message_data['typeMessage']}")
+            await whatsapp.handle_file_message(chat_id, message_data)
+            
         return {"status": "ok"}
             
     except Exception as e:
