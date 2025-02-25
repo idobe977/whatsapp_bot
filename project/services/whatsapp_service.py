@@ -50,6 +50,9 @@ class WhatsAppService:
             # Initialize calendar manager
             self.calendar_manager = CalendarService()
             
+            # Define stop phrases for cancelling surveys
+            self.STOP_PHRASES = ["הפסקת שאלון", "בוא נפסיק"]
+            
             # Connection pool settings
             self.MAX_CONNECTIONS = 100
             self.KEEPALIVE_TIMEOUT = 75
