@@ -72,14 +72,12 @@
     },
     {
       "id": "profile_pic",
-      "field": "תמונת_פרופיל",
       "type": "file",
       "text": "אנא שלח/י תמונת פרופיל",
       "allowed_types": ["image"]
   },
   {
       "id": "resume",
-      "field": "קורות_חיים",
       "type": "file",
       "text": "אנא שלח/י את קורות החיים שלך בפורמט PDF",
       "allowed_types": ["document"]
