@@ -15,6 +15,12 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
         self.surveys = self.load_surveys()
         self.survey_state = {}  # Track survey state for each user
         self.SURVEY_TIMEOUT = 30  # Minutes
+        self.ALLOWED_FILE_TYPES = {
+            'image': ['image/jpeg', 'image/png', 'image/gif'],
+            'document': ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+            'any': None  # None means accept any file type
+        }
+        self.MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB in bytes
         
         logger.info(f"Loaded {len(self.surveys)} surveys")
         for survey in self.surveys:
@@ -32,6 +38,67 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
                 logger.info(f"Survey '{survey.name}' triggers: {survey.trigger_phrases}")
         return surveys
 
+    async def handle_file_message(self, chat_id: str, message_data: Dict) -> None:
+        """Handle incoming file messages"""
+        state = self.survey_state.get(chat_id)
+        if not state or state["current_question"] >= len(state["survey"].questions):
+            return
+
+        current_question = state["survey"].questions[state["current_question"]]
+        if current_question["type"] != "file":
+            return
+
+        file_data = message_data.get("fileMessageData", {})
+        mime_type = file_data.get("mimeType")
+        file_size = len(file_data.get("file", "")) if "file" in file_data else None
+        download_url = file_data.get("downloadUrl")
+
+        # בדיקת סוג הקובץ
+        allowed_types = current_question.get("allowed_types", ["any"])
+        if "any" not in allowed_types:
+            valid_mime_types = []
+            for file_type in allowed_types:
+                valid_mime_types.extend(self.ALLOWED_FILE_TYPES.get(file_type, []))
+            
+            if mime_type not in valid_mime_types:
+                await self.send_message_with_retry(
+                    chat_id, 
+                    state["survey"].messages["file_upload"]["invalid_type"].format(
+                        allowed_types=", ".join(allowed_types)
+                    )
+                )
+                return
+
+        # בדיקת גודל הקובץ
+        if file_size and file_size > self.MAX_FILE_SIZE:
+            await self.send_message_with_retry(
+                chat_id,
+                state["survey"].messages["file_upload"]["too_large"]
+            )
+            return
+
+        # שמירת המידע על הקובץ
+        answer = {
+            "url": download_url,
+            "mime_type": mime_type,
+            "file_name": file_data.get("fileName", ""),
+            "caption": file_data.get("caption", "")
+        }
+
+        # עדכון התשובה במצב השאלון
+        state["answers"][current_question["field"]] = answer
+        state["current_question"] += 1
+        state["last_activity"] = datetime.now()
+
+        # שליחת הודעת אישור
+        await self.send_message_with_retry(
+            chat_id,
+            state["survey"].messages["file_upload"]["success"]
+        )
+
+        # המשך לשאלה הבאה
+        await self.send_next_question(chat_id)
+
     async def send_next_question(self, chat_id: str) -> None:
         """Send the next survey question"""
         state = self.survey_state.get(chat_id)
@@ -46,6 +113,15 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
                 await self.send_poll(chat_id, question)
             elif question["type"] == "meeting_scheduler":
                 await self.handle_meeting_scheduler(chat_id, question)
+            elif question["type"] == "file":
+                # הוספת הודעה מותאמת לשאלת קובץ
+                file_message = question.get("text", "אנא שלח קובץ")
+                if "allowed_types" in question:
+                    allowed_types = question["allowed_types"]
+                    if "any" not in allowed_types:
+                        file_types_str = ", ".join(allowed_types)
+                        file_message += f"\nסוגי קבצים מותרים: {file_types_str}"
+                await self.send_message_with_retry(chat_id, file_message)
             else:
                 await self.send_message_with_retry(chat_id, question["text"])
         else:

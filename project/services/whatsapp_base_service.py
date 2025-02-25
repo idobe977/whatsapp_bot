@@ -18,6 +18,14 @@ AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
 AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
 
 class WhatsAppBaseService:
+    # File type definitions
+    ALLOWED_FILE_TYPES = {
+        'image': ['image/jpeg', 'image/png', 'image/gif'],
+        'document': ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+        'any': None  # None means accept any file type
+    }
+    MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB in bytes
+
     def __init__(self, instance_id: str, api_token: str):
         try:
             self.instance_id = instance_id

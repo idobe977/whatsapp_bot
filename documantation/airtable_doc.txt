@@ -486,3 +486,84 @@ curl -X POST "https://api.airtable.com/v0/{baseId}/{tableIdOrName}" \
   },
   "id": "rec560UJdUtocSouk"
 }
+
+
+Upload attachment
+post
+https://content.airtable.com/v0/{baseId}/{recordId}/{attachmentFieldIdOrName}/uploadAttachment
+Upload an attachment up to 5 MB to an attachment cell via the file bytes directly.
+
+To upload attachments above this size that are accessible by a public URL, they can be added using https://airtable.com/developers/web/api/field-model#multipleattachment
+
+Requirements
+Authentication	Personal access token, OAuth integration
+Scope	
+data.records:write
+
+User role	
+Base editor
+
+Billing plans	All plans
+Path parameters
+baseId
+string
+recordId
+string
+attachmentFieldIdOrName
+string
+Request body
+contentType
+string
+Content type, e.g. "image/jpeg"
+
+file
+string
+The base64 encoded string of the file to be uploaded.
+
+filename
+string
+Filename, e.g. "foo.jpg"
+
+Response format
+id
+string
+Record ID
+
+createdTime
+string
+A date timestamp in the ISO format, eg:"2018-01-01T00:00:00.000Z"
+
+fields
+object
+Cell values are keyed by field ID.
+
+See Cell Values for more information on cell value response types.
+
+key: string	Cell value
+Request (example)
+Copy
+curl -X POST "https://content.airtable.com/v0/{baseId}/{recordId}/{attachmentFieldIdOrName}/uploadAttachment" \
+-H "Authorization: Bearer YOUR_TOKEN" \
+-H "Content-Type: application/json" \
+--data '{
+    "contentType": "text/plain",
+    "file": "SGVsbG8gd29ybGQ=",
+    "filename": "sample.txt"
+  }'
+200 – Response (example)
+{
+  "createdTime": "2022-02-01T21:25:05.663Z",
+  "fields": {
+    "fld00000000000000": [
+      {
+        "filename": "sample.txt",
+        "id": "att00000000000000",
+        "size": 11,
+        "type": "text/plain",
+        "url": "https://v5.airtableusercontent.com/v3/u/29/29/1716940800000/ffhiecnieIwxisnIBDSAln/foDeknw_G5CdkdPW1j-U0yUCX9YSaE1EJft3wvXb85pnTY1sKZdYeFvKpsM-fqOa6Bnu5MQVPA_ApINEUXL_E3SAZn6z01VN9Pn9SluhSy4NoakZGapcvl4tuN3jktO2Dt7Ck_gh4oMdsrcV8J-t_A/53m17XmDDHsNtIqzM1PQVnRKutK6damFgNNS5WCaTbI"
+      }
+    ]
+  },
+  "id": "rec00000000000000"
+}
+

@@ -79,6 +79,90 @@ class WhatsAppMessageHandler(WhatsAppBaseService):
             logger.error(f"Error handling text message: {str(e)}")
             await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד ההודעה. נא לנסות שוב.")
 
+    async def handle_file_message(self, chat_id: str, message_data: Dict) -> None:
+        """Handle incoming file messages"""
+        try:
+            logger.info(f"Processing file message from {chat_id}")
+            logger.debug(f"File message data: {json.dumps(message_data, ensure_ascii=False)}")
+
+            # Check if user is in middle of a survey
+            if chat_id not in self.survey_state:
+                logger.info(f"Received file from {chat_id} but not in survey")
+                return
+
+            state = self.survey_state[chat_id]
+            state['last_activity'] = datetime.now()
+            current_question = state["survey"].questions[state["current_question"]]
+
+            # Check if current question expects a file
+            if current_question["type"] != "file":
+                logger.info(f"Received file but current question type is {current_question['type']}")
+                return
+
+            # Get file data
+            file_data = message_data.get("fileMessageData", {})
+            mime_type = file_data.get("mimeType")
+            file_size = len(file_data.get("file", "")) if "file" in file_data else None
+            download_url = file_data.get("downloadUrl")
+
+            # Validate file type
+            allowed_types = current_question.get("allowed_types", ["any"])
+            if "any" not in allowed_types:
+                valid_mime_types = []
+                for file_type in allowed_types:
+                    valid_mime_types.extend(self.ALLOWED_FILE_TYPES.get(file_type, []))
+                
+                if mime_type not in valid_mime_types:
+                    await self.send_message_with_retry(
+                        chat_id, 
+                        state["survey"].messages["file_upload"]["invalid_type"].format(
+                            allowed_types=", ".join(allowed_types)
+                        )
+                    )
+                    return
+
+            # Validate file size
+            if file_size and file_size > self.MAX_FILE_SIZE:
+                await self.send_message_with_retry(
+                    chat_id,
+                    state["survey"].messages["file_upload"]["too_large"]
+                )
+                return
+
+            # Save file data to Airtable
+            file_info = {
+                "url": download_url,
+                "mime_type": mime_type,
+                "file_name": file_data.get("fileName", ""),
+                "caption": file_data.get("caption", "")
+            }
+
+            # Update Airtable
+            if await self.update_airtable_record(
+                state["record_id"],
+                {current_question["field"]: json.dumps(file_info)},
+                state["survey"]
+            ):
+                # Send success message
+                await self.send_message_with_retry(
+                    chat_id,
+                    state["survey"].messages["file_upload"]["success"]
+                )
+
+                # Move to next question
+                state["current_question"] += 1
+                await self.send_next_question(chat_id)
+            else:
+                await self.send_message_with_retry(
+                    chat_id,
+                    "מצטערים, הייתה שגיאה בשמירת הקובץ. נא לנסות שוב."
+                )
+
+        except Exception as e:
+            logger.error(f"Error handling file message: {str(e)}")
+            logger.error(f"Stack trace: {traceback.format_exc()}")
+            await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד הקובץ. נא לנסות שוב.")
+
     async def handle_voice_message(self, chat_id: str, voice_url: str) -> None:
         """Handle incoming voice messages"""
         if chat_id not in self.survey_state:

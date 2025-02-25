@@ -1,0 +1,52 @@
+{
+    "name": "שאלון עם קבצים",
+    "trigger_phrases": ["התחל שאלון קבצים", "שאלון עם קבצים"],
+    "airtable": {
+        "table_id": "tblExample",
+        "base_id": null
+    },
+    "questions": [
+        {
+            "id": "name",
+            "field": "שם",
+            "type": "text",
+            "text": "מה שמך?"
+        },
+        {
+            "id": "profile_pic",
+            "field": "תמונת_פרופיל",
+            "type": "file",
+            "text": "אנא שלח/י תמונת פרופיל",
+            "allowed_types": ["image"]
+        },
+        {
+            "id": "resume",
+            "field": "קורות_חיים",
+            "type": "file",
+            "text": "אנא שלח/י את קורות החיים שלך בפורמט PDF",
+            "allowed_types": ["document"]
+        },
+        {
+            "id": "additional_files",
+            "field": "קבצים_נוספים",
+            "type": "file",
+            "text": "האם תרצה/י לשלוח קבצים נוספים? (אופציונלי)",
+            "allowed_types": ["any"]
+        }
+    ],
+    "messages": {
+        "welcome": "ברוכים הבאים לשאלון הקבצים! אנא מלאו את הפרטים הבאים:",
+        "completion": {
+            "text": "תודה רבה על מילוי השאלון והעלאת הקבצים!",
+            "should_generate_summary": true
+        },
+        "timeout": "השאלון בוטל עקב חוסר פעילות. אנא התחל מחדש.",
+        "error": "מצטערים, הייתה שגיאה בעיבוד התשובה. נא לנסות שוב.",
+        "file_upload": {
+            "success": "הקובץ התקבל בהצלחה!",
+            "invalid_type": "סוג הקובץ שנשלח אינו נתמך. אנא שלח קובץ מסוג: {allowed_types}",
+            "too_large": "הקובץ גדול מדי. הגודל המקסימלי המותר הוא 5MB",
+            "missing": "אנא שלח קובץ כדי להמשיך"
+        }
+    }
+} 
