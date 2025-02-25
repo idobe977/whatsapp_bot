@@ -40,64 +40,59 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
 
     async def handle_file_message(self, chat_id: str, message_data: Dict) -> None:
         """Handle incoming file messages"""
-        state = self.survey_state.get(chat_id)
-        if not state or state["current_question"] >= len(state["survey"].questions):
-            return
+        try:
+            logger.info(f"Processing file message from {chat_id}")
+            logger.debug(f"File message data: {json.dumps(message_data, ensure_ascii=False)}")
 
-        current_question = state["survey"].questions[state["current_question"]]
-        if current_question["type"] != "file":
-            return
-
-        file_data = message_data.get("fileMessageData", {})
-        mime_type = file_data.get("mimeType")
-        file_size = len(file_data.get("file", "")) if "file" in file_data else None
-        download_url = file_data.get("downloadUrl")
-
-        # בדיקת סוג הקובץ
-        allowed_types = current_question.get("allowed_types", ["any"])
-        if "any" not in allowed_types:
-            valid_mime_types = []
-            for file_type in allowed_types:
-                valid_mime_types.extend(self.ALLOWED_FILE_TYPES.get(file_type, []))
-            
-            if mime_type not in valid_mime_types:
-                await self.send_message_with_retry(
-                    chat_id, 
-                    state["survey"].messages["file_upload"]["invalid_type"].format(
-                        allowed_types=", ".join(allowed_types)
-                    )
-                )
+            # Check if user is in middle of a survey
+            if chat_id not in self.survey_state:
+                logger.info(f"Received file from {chat_id} but not in survey")
                 return
 
-        # בדיקת גודל הקובץ
-        if file_size and file_size > self.MAX_FILE_SIZE:
+            state = self.survey_state[chat_id]
+            state['last_activity'] = datetime.now()
+            current_question = state["survey"].questions[state["current_question"]]
+
+            # Get file data
+            file_data = message_data.get("fileMessageData", {})
+            mime_type = file_data.get("mimeType")
+            download_url = file_data.get("downloadUrl")
+            caption = file_data.get("caption", "")
+            file_name = file_data.get("fileName", "")
+
+            # Prepare file attachment object for Airtable
+            attachment = {
+                "url": download_url,
+                "filename": file_name or f"file_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            }
+
+            # Update Airtable with the attachment
+            if await self.update_airtable_record(
+                state["record_id"],
+                {current_question["field"]: [attachment]},  # Airtable expects a list of attachment objects
+                state["survey"]
+            ):
+                # Send success message
+                await self.send_message_with_retry(
+                    chat_id,
+                    state["survey"].messages.get("file_upload", {}).get("success", "הקובץ נשמר בהצלחה!")
+                )
+
+                # Move to next question
+                state["current_question"] += 1
+                await self.send_next_question(chat_id)
+            else:
+                await self.send_message_with_retry(
+                    chat_id,
+                    "מצטערים, הייתה שגיאה בשמירת הקובץ. נא לנסות שוב."
+                )
+
+        except Exception as e:
+            logger.error(f"Error handling file message: {str(e)}")
             await self.send_message_with_retry(
                 chat_id,
-                state["survey"].messages["file_upload"]["too_large"]
+                "מצטערים, הייתה שגיאה בעיבוד הקובץ. נא לנסות שוב."
             )
-            return
-
-        # שמירת המידע על הקובץ
-        answer = {
-            "url": download_url,
-            "mime_type": mime_type,
-            "file_name": file_data.get("fileName", ""),
-            "caption": file_data.get("caption", "")
-        }
-
-        # עדכון התשובה במצב השאלון
-        state["answers"][current_question["field"]] = answer
-        state["current_question"] += 1
-        state["last_activity"] = datetime.now()
-
-        # שליחת הודעת אישור
-        await self.send_message_with_retry(
-            chat_id,
-            state["survey"].messages["file_upload"]["success"]
-        )
-
-        # המשך לשאלה הבאה
-        await self.send_next_question(chat_id)
 
     async def send_next_question(self, chat_id: str) -> None:
         """Send the next survey question"""
