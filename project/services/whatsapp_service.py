@@ -891,6 +891,39 @@ class WhatsAppService:
         else:
             await self.finish_survey(chat_id)
 
+    async def process_survey_next_question(self, chat_id: str) -> None:
+        """Process the next question in the survey - increment counter and send next question"""
+        try:
+            logger.info(f"[process_survey_next_question] מתקדם לשאלה הבאה עבור: {chat_id}")
+            
+            state = self.survey_state.get(chat_id)
+            if not state:
+                logger.error(f"[process_survey_next_question] לא נמצא מצב שאלון עבור: {chat_id}")
+                return
+                
+            survey = state["survey"]
+            
+            # מתקדם לשאלה הבאה
+            state["current_question"] += 1
+            logger.info(f"[process_survey_next_question] מתקדם לשאלה מספר {state['current_question'] + 1} מתוך {len(survey.questions)}")
+            
+            # שולח את השאלה הבאה
+            await self.send_next_question(chat_id)
+            
+        except Exception as e:
+            logger.error(f"[process_survey_next_question] שגיאה בהתקדמות לשאלה הבאה: {e}")
+            logger.error(f"[process_survey_next_question] פרטי השגיאה: {traceback.format_exc()}")
+            
+            # במקרה של שגיאה, ננסה לשלוח הודעת שגיאה למשתמש
+            try:
+                state = self.survey_state.get(chat_id)
+                if state and state["survey"]:
+                    await self.send_message_with_retry(chat_id, state["survey"].messages["error"])
+                else:
+                    await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד השאלון. נא לנסות שוב.")
+            except Exception as inner_e:
+                logger.error(f"[process_survey_next_question] שגיאה בשליחת הודעת שגיאה: {inner_e}")
+
     def get_cached_airtable_record(self, record_id: str, table_id: str) -> Optional[Dict]:
         """Get record from cache if available and not expired"""
         cache_key = f"{table_id}:{record_id}"
@@ -948,17 +981,33 @@ class WhatsAppService:
                 
                 # טיפול מיוחד בקבצים ומערכים של אובייקטים
                 if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
-                    # בדיקה שכל האובייקטים במערך מכילים את השדות הנדרשים לקבצים
-                    if all(isinstance(item, dict) and "url" in item for item in value):
+                    # וידוא שכל האובייקטים במערך מכילים את השדות הנדרשים לקבצים
+                    valid_attachments = True
+                    for item in value:
+                        if not isinstance(item, dict) or "url" not in item or "filename" not in item or "type" not in item:
+                            valid_attachments = False
+                            logger.warning(f"[update_airtable_record] נמצא אובייקט לא תקין במערך: {json.dumps(item, ensure_ascii=False)}")
+                    
+                    if valid_attachments:
                         logger.debug(f"[update_airtable_record] שדה {key} מכיל מערך של קבצים תקין")
                         processed_data[key] = value
                     else:
                         logger.warning(f"[update_airtable_record] שדה {key} מכיל מערך של אובייקטים לא תקין")
                         logger.debug(f"[update_airtable_record] ערך: {json.dumps(value, ensure_ascii=False)}")
+                        
                         # ננסה לתקן את הפורמט אם אפשר
-                        if all(isinstance(item, dict) for item in value):
-                            logger.info(f"[update_airtable_record] מנסה לתקן את הפורמט של שדה {key}")
-                            processed_data[key] = value
+                        fixed_attachments = []
+                        for item in value:
+                            if isinstance(item, dict):
+                                fixed_item = {}
+                                fixed_item["url"] = item.get("url", "")
+                                fixed_item["filename"] = item.get("filename", "file.txt")
+                                fixed_item["type"] = item.get("type", "application/octet-stream")
+                                fixed_attachments.append(fixed_item)
+                        
+                        if fixed_attachments:
+                            logger.info(f"[update_airtable_record] תוקן הפורמט של שדה {key}")
+                            processed_data[key] = fixed_attachments
                         else:
                             logger.error(f"[update_airtable_record] לא ניתן לתקן את הפורמט של שדה {key}")
                             # נשמור כמחרוזת JSON אם לא ניתן לתקן
@@ -1398,17 +1447,14 @@ class WhatsAppService:
                 }
                 logger.info(f"[handle_file_message] עודכן מידע הקובץ האחרון במצב השאלון: {json.dumps(state['last_file_upload'], ensure_ascii=False)}")
                 
-                # מעבר לשאלה הבאה
-                state["current_question"] += 1
-                logger.info(f"[handle_file_message] מתקדם לשאלה הבאה (מספר {state['current_question'] + 1})")
-                await self.send_next_question(chat_id)
+                # התקדמות לשאלה הבאה
+                await self.process_survey_next_question(chat_id)
             else:
                 logger.error(f"[handle_file_message] נכשל בשמירת הקובץ באירטייבל עבור שאלה {question_id}")
                 await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בשמירת הקובץ. נא לנסות שוב.")
-
         except Exception as e:
-            logger.error(f"[handle_file_message] שגיאה בטיפול בקובץ: {str(e)}")
-            logger.error(f"[handle_file_message] Stack trace: {traceback.format_exc()}")
+            logger.error(f"[handle_file_message] שגיאה בטיפול בקובץ: {e}")
+            logger.error(f"[handle_file_message] פרטי השגיאה: {traceback.format_exc()}")
             await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד הקובץ. נא לנסות שוב.")
 
 def load_surveys_from_json() -> List[SurveyDefinition]:
