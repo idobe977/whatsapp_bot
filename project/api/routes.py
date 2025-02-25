@@ -1,12 +1,12 @@
 from fastapi import FastAPI, Request
 import traceback
-from project.services.whatsapp_service import WhatsAppService
+from project.services.whatsapp_survey_service import WhatsAppSurveyService
 from project.utils.logger import logger
 import os
 
 app = FastAPI()
 
-whatsapp = WhatsAppService(
+whatsapp = WhatsAppSurveyService(
     instance_id=os.getenv("ID_INSTANCE"),
     api_token=os.getenv("API_TOKEN_INSTANCE")
 )

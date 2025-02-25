@@ -10,3 +10,4 @@ google-auth-httplib2==0.2.0
 google-api-python-client==2.120.0
 pytz==2024.1
 python-dotenv
+python-multipart==0.0.9

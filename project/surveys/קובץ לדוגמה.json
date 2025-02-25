@@ -62,15 +62,47 @@
       "reflection": {
         "type": "empathetic",
         "enabled": true
+      },
+      "flow": {
+        "if": {
+          "answer": "מאוד מרוצה",
+          "then": {
+            "goto": "שאלה_2",
+            "say": "איזה כיף לשמוע! מה הכי אהבת בשירות שלנו?"
+          }
+        },
+        "else_if": [
+          {
+            "answer": "מרוצה",
+            "then": {
+              "goto": "שאלה_3",
+              "say": "תודה! איך נוכל לשפר את השירות?"
+            }
+          }
+        ],
+        "then": {
+          "goto": "שאלה_4",
+          "say": "מצטערים לשמוע. מה לא היה בסדר?"
+        }
       }
     },
     {
-      "id": "העלאת מסמך",
-      "type": "file_upload",
-      "text": "אנא העלה את המסמך החתום:",
-      "allowed_types": ["pdf", "image"],
+      "id": "קביעת פגישת ייעוץ",
+      "type": "meeting_scheduler",
+      "text": "האם תרצה/י לקבוע פגישת ייעוץ אישית לדיון בפתרונות המתאימים לך? 📅",
+      "confirmation_message": "מעולה! קבענו פגישה ל-{{meeting_time}} 🎯\nאשלח לך תזכורת יום לפני הפגישה 📱",
+      "no_slots_message": "מצטערים, אין זמנים פנויים בשבועיים הקרובים. אנא נסה שוב מאוחר יותר או צור קשר ישירות.",
       "reflection": {
-        "type": "professional",
+        "type": "empathetic",
+        "enabled": true
+      }
+    },
+    {
+      "id": "מידע נוסף",
+      "type": "text",
+      "text": "יש משהו נוסף שתרצה/י לשתף על האתגרים או השאיפות שלך בעסק? 📝 💭",
+      "reflection": {
+        "type": "empathetic",
         "enabled": true
       }
     }
