@@ -53,6 +53,11 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
             state['last_activity'] = datetime.now()
             current_question = state["survey"].questions[state["current_question"]]
 
+            # Check if the current question is a file type question
+            if current_question["type"] != "file":
+                logger.warning(f"Received file but current question is not a file type. Current question type: {current_question['type']}")
+                return
+
             # Get file data
             file_data = message_data.get("fileMessageData", {})
             mime_type = file_data.get("mimeType")
@@ -66,16 +71,35 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
                 "filename": file_name or f"file_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
             }
 
+            # Get field name - use the question ID as the field name
+            field_name = current_question["id"]
+            
+            logger.debug(f"Updating Airtable record with attachment in field: {field_name}")
+
             # Update Airtable with the attachment
             if await self.update_airtable_record(
                 state["record_id"],
-                {current_question["field"]: [attachment]},  # Airtable expects a list of attachment objects
+                {field_name: [attachment]},  # Airtable expects a list of attachment objects
                 state["survey"]
             ):
-                # Send success message
+                # Send success message - try to get from different possible locations
+                survey = state["survey"]
+                success_message = "הקובץ נשמר בהצלחה!"  # Default message
+                
+                # Check in survey messages
+                if hasattr(survey, 'messages') and survey.messages:
+                    if isinstance(survey.messages, dict):
+                        # Try to get from file_upload directly in messages
+                        if 'file_upload' in survey.messages and isinstance(survey.messages['file_upload'], dict):
+                            success_message = survey.messages['file_upload'].get('success', success_message)
+                        # Try to get from top-level file_upload object
+                        elif hasattr(survey, 'file_upload') and isinstance(survey.file_upload, dict):
+                            success_message = survey.file_upload.get('success', success_message)
+                
+                logger.debug(f"Using success message: {success_message}")
                 await self.send_message_with_retry(
                     chat_id,
-                    state["survey"].messages.get("file_upload", {}).get("success", "הקובץ נשמר בהצלחה!")
+                    success_message
                 )
 
                 # Move to next question
