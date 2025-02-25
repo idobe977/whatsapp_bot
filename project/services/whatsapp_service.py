@@ -785,6 +785,45 @@ class WhatsAppService:
                 survey.messages["error"]
             )
 
+    async def start_new_survey(self, chat_id: str, survey: SurveyDefinition, sender_name: str = "") -> None:
+        """התחלת שאלון חדש"""
+        try:
+            logger.info(f"[start_new_survey] מתחיל שאלון חדש: {survey.name} עבור משתמש: {chat_id}")
+            
+            # יצירת רשומה התחלתית באירטייבל
+            record_id = self.create_initial_record(chat_id, sender_name, survey)
+            if not record_id:
+                logger.error(f"[start_new_survey] נכשל ביצירת רשומה התחלתית באירטייבל עבור: {chat_id}")
+                await self.send_message_with_retry(
+                    chat_id, 
+                    "מצטערים, הייתה שגיאה בהתחלת השאלון. נא לנסות שוב."
+                )
+                return
+                
+            # אתחול מצב השאלון
+            self.survey_state[chat_id] = {
+                "current_question": 0,
+                "answers": {},
+                "record_id": record_id,
+                "survey": survey,
+                "last_activity": datetime.now()
+            }
+            
+            # שליחת הודעת פתיחה
+            await self.send_message_with_retry(chat_id, survey.messages["welcome"])
+            await asyncio.sleep(1.5)
+            
+            # שליחת השאלה הראשונה
+            await self.send_next_question(chat_id)
+            
+        except Exception as e:
+            logger.error(f"[start_new_survey] שגיאה בהתחלת שאלון חדש: {e}")
+            logger.error(f"[start_new_survey] פרטי השגיאה: {traceback.format_exc()}")
+            await self.send_message_with_retry(
+                chat_id, 
+                "מצטערים, הייתה שגיאה בהתחלת השאלון. נא לנסות שוב."
+            )
+
     async def finish_survey(self, chat_id: str) -> None:
         """Finish the survey and send a summary"""
         try:
