@@ -82,92 +82,55 @@ class WhatsAppService:
 
     async def handle_text_message(self, chat_id: str, text: str, sender_name: str = "") -> None:
         """Handle incoming text messages"""
-        try:
-            logger.info(f"[handle_text_message] התחלת טיפול בהודעת טקסט מ: {chat_id}")
-            logger.debug(f"[handle_text_message] תוכן ההודעה: {text[:100]}...")
-            
-            # Check for stop phrases
-            stop_phrases = ["הפסקת שאלון", "בוא נפסיק"]
-            if chat_id in self.survey_state and any(phrase in text.lower() for phrase in stop_phrases):
-                logger.info(f"[handle_text_message] המשתמש ביקש להפסיק את השאלון: {chat_id}")
-                await self.send_message_with_retry(chat_id, "השאלון הופסק. תודה על ההשתתפות!")
-                
-                # Update Airtable status
-                state = self.survey_state[chat_id]
-                await self.update_airtable_record(
-                    state["record_id"],
-                    {"סטטוס": "בוטל"},
-                    state["survey"]
-                )
-                
-                # Clean up state
-                del self.survey_state[chat_id]
-                return
+        logger.info(f"[handle_text_message] התחלת טיפול בהודעת טקסט מ: {chat_id}")
+        logger.info(f"[handle_text_message] תוכן ההודעה: {text}")
 
-            # First check if user is in middle of a survey
+        # Check for stop phrases
+        if text.strip().lower() in self.STOP_PHRASES:
+            logger.info(f"[handle_text_message] התקבלה בקשת עצירה מ: {chat_id}")
             if chat_id in self.survey_state:
-                logger.info(f"[handle_text_message] המשתמש נמצא באמצע שאלון")
-                state = self.survey_state[chat_id]
-                state['last_activity'] = datetime.now()
-                survey = state["survey"]
-                current_question = survey.questions[state["current_question"]]
-                logger.info(f"[handle_text_message] שאלה נוכחית: {current_question['id']}, סוג: {current_question.get('type', 'unknown')}")
+                del self.survey_state[chat_id]
+            await self.send_message_with_retry(chat_id, "השאלון בוטל. תודה על ההשתתפות!")
+            return
 
-                # Check if this is a file upload question and we already have a file
-                if "last_file_upload" in state:
-                    logger.info(f"[handle_text_message] נמצא מידע על קובץ קודם: {state['last_file_upload']}")
-                    if state["last_file_upload"]["question_id"] == current_question["id"]:
-                        logger.info(f"[handle_text_message] כבר יש קובץ לשאלה הנוכחית, מדלג על עיבוד הטקסט")
-                        return
+        # Check if user is in the middle of a survey
+        if chat_id in self.survey_state:
+            logger.info("[handle_text_message] המשתמש נמצא באמצע שאלון")
+            state = self.survey_state[chat_id]
+            state['last_activity'] = datetime.now()
+            survey = state["survey"]
+            current_question = survey.questions[state["current_question"]]
+            
+            logger.info(f"[handle_text_message] שאלה נוכחית: {current_question['text']}, סוג: {current_question.get('type', 'text')}")
 
-                # Process the answer
-                logger.info(f"[handle_text_message] מעבד תשובה טקסטואלית")
-                await self.process_survey_answer(chat_id, {
-                    "type": "text",
-                    "content": text
-                })
+            # אם השאלה היא מסוג file_upload, נבדוק אם כבר יש קובץ שמור
+            if current_question.get("type") == "file_upload":
+                question_id = current_question["id"]
+                if state.get("answers", {}).get(question_id):
+                    logger.info(f"[handle_text_message] נמצא קובץ שכבר הועלה לשאלה {question_id}")
+                    await self.send_message_with_retry(chat_id, "כבר העלית קובץ לשאלה זו. אם ברצונך להעלות קובץ אחר, אנא העלה אותו ישירות.")
+                    return
+
+            # Process the answer
+            logger.info("[handle_text_message] מעבד תשובה טקסטואלית")
+            await self.process_survey_answer(chat_id, text)
+            return
+
+        # Check for trigger phrases to start a new survey
+        logger.info("[handle_text_message] בודק אם יש להתחיל שאלון חדש")
+        for survey in self.surveys:
+            if any(phrase.lower() in text.lower() for phrase in survey.trigger_phrases):
+                logger.info(f"[handle_text_message] מתחיל שאלון חדש: {survey.name}")
+                await self.start_new_survey(chat_id, survey, sender_name)
                 return
 
-            # If not in survey, check for trigger phrase
-            logger.info(f"[handle_text_message] בודק אם ההודעה מכילה מילת טריגר להתחלת שאלון")
-            for survey in self.surveys:
-                logger.debug(f"[handle_text_message] בודק טריגרים עבור שאלון: {survey.name}")
-                
-                for trigger in survey.trigger_phrases:
-                    if trigger.lower() in text.lower():
-                        logger.info(f"[handle_text_message] נמצאה מילת טריגר '{trigger}' עבור שאלון: {survey.name}")
-                        
-                        # Create initial record in Airtable
-                        record_id = self.create_initial_record(chat_id, sender_name, survey)
-                        if record_id:
-                            # Initialize survey state
-                            self.survey_state[chat_id] = {
-                                "current_question": 0,
-                                "answers": {},
-                                "record_id": record_id,
-                                "survey": survey,
-                                "last_activity": datetime.now()
-                            }
-                            
-                            # Send welcome message
-                            await self.send_message_with_retry(chat_id, survey.messages["welcome"])
-                            await asyncio.sleep(1.5)  # Add a small delay between messages
-                            
-                            # Send first question
-                            await self.send_next_question(chat_id)
-                        else:
-                            await self.send_message_with_retry(
-                                chat_id, 
-                                "מצטערים, הייתה שגיאה בהתחלת השאלון. נא לנסות שוב."
-                            )
-                        return
-                    
-            logger.info(f"[handle_text_message] לא נמצאו מילות טריגר בהודעה מ: {chat_id}")
-
-        except Exception as e:
-            logger.error(f"[handle_text_message] שגיאה בטיפול בהודעת טקסט: {str(e)}")
-            logger.error(f"[handle_text_message] Stack trace: {traceback.format_exc()}")
-            await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד ההודעה. נא לנסות שוב.")
+        # If no survey is active and no trigger phrase was found
+        logger.info("[handle_text_message] לא נמצא שאלון פעיל או מילת הפעלה")
+        await self.send_message_with_retry(
+            chat_id,
+            "היי! אני בוט שאלונים. אנא השתמש באחת ממילות ההפעלה הבאות כדי להתחיל שאלון:\n" +
+            "\n".join([f"- {', '.join(survey.trigger_phrases)}" for survey in self.surveys])
+        )
 
     async def handle_voice_message(self, chat_id: str, voice_url: str) -> None:
         """Handle incoming voice messages"""
@@ -960,13 +923,7 @@ class WhatsAppService:
                 logger.info("[update_airtable_record] נמצאה רשומה במטמון")
                 # Merge new data with cached record
                 for key, value in data.items():
-                    # אם זה מערך של אובייקטים (למשל קבצים), נחליף את הערך הקיים
-                    if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
-                        logger.debug(f"[update_airtable_record] מחליף ערך קיים בשדה {key} עם מערך של אובייקטים")
-                        cached_record[key] = value
-                    else:
-                        # אחרת נעדכן את הערך הקיים
-                        cached_record[key] = value
+                    cached_record[key] = value
                 
                 self.cache_airtable_record(record_id, survey.airtable_table_id, cached_record)
                 logger.debug(f"[update_airtable_record] רשומה מאוחדת: {json.dumps(cached_record, ensure_ascii=False)}")
@@ -980,42 +937,35 @@ class WhatsAppService:
                 logger.debug(f"[update_airtable_record] מעבד שדה: {key}, סוג: {type(value).__name__}")
                 
                 # טיפול מיוחד בקבצים ומערכים של אובייקטים
-                if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
-                    # וידוא שכל האובייקטים במערך מכילים את השדות הנדרשים לקבצים
-                    valid_attachments = True
-                    for item in value:
-                        if not isinstance(item, dict) or "url" not in item or "filename" not in item or "type" not in item:
-                            valid_attachments = False
-                            logger.warning(f"[update_airtable_record] נמצא אובייקט לא תקין במערך: {json.dumps(item, ensure_ascii=False)}")
-                    
-                    if valid_attachments:
-                        logger.debug(f"[update_airtable_record] שדה {key} מכיל מערך של קבצים תקין")
-                        processed_data[key] = value
-                    else:
-                        logger.warning(f"[update_airtable_record] שדה {key} מכיל מערך של אובייקטים לא תקין")
-                        logger.debug(f"[update_airtable_record] ערך: {json.dumps(value, ensure_ascii=False)}")
-                        
-                        # ננסה לתקן את הפורמט אם אפשר
-                        fixed_attachments = []
+                if isinstance(value, list):
+                    if len(value) > 0 and isinstance(value[0], dict):
+                        # וידוא שכל האובייקטים במערך מכילים את השדות הנדרשים לקבצים
+                        valid_attachments = []
                         for item in value:
                             if isinstance(item, dict):
-                                fixed_item = {}
-                                fixed_item["url"] = item.get("url", "")
-                                fixed_item["filename"] = item.get("filename", "file.txt")
-                                fixed_item["type"] = item.get("type", "application/octet-stream")
-                                fixed_attachments.append(fixed_item)
+                                attachment = {
+                                    "url": item.get("url", ""),
+                                    "filename": item.get("filename", "file.txt"),
+                                    "type": item.get("type", "application/octet-stream")
+                                }
+                                if attachment["url"]:  # רק אם יש URL תקין
+                                    valid_attachments.append(attachment)
+                                    logger.debug(f"[update_airtable_record] נוסף קובץ תקין: {json.dumps(attachment, ensure_ascii=False)}")
+                                else:
+                                    logger.warning(f"[update_airtable_record] נמצא אובייקט לא תקין: {json.dumps(item, ensure_ascii=False)}")
                         
-                        if fixed_attachments:
-                            logger.info(f"[update_airtable_record] תוקן הפורמט של שדה {key}")
-                            processed_data[key] = fixed_attachments
+                        if valid_attachments:
+                            logger.info(f"[update_airtable_record] נמצאו {len(valid_attachments)} קבצים תקינים בשדה {key}")
+                            processed_data[key] = valid_attachments
                         else:
-                            logger.error(f"[update_airtable_record] לא ניתן לתקן את הפורמט של שדה {key}")
-                            # נשמור כמחרוזת JSON אם לא ניתן לתקן
-                            processed_data[key] = json.dumps(value, ensure_ascii=False)
+                            logger.error(f"[update_airtable_record] לא נמצאו קבצים תקינים בשדה {key}")
+                            continue
+                    else:
+                        # אם זה מערך רגיל, נשמור אותו כמו שהוא
+                        processed_data[key] = value
                 else:
-                    # אחרת נשמור את הערך כמו שהוא
+                    # אם זה לא מערך, נשמור את הערך כמו שהוא
                     processed_data[key] = value
-                    logger.debug(f"[update_airtable_record] שדה {key} נשמר כערך פשוט")
             
             logger.info("[update_airtable_record] שולח עדכון לאירטייבל")
             logger.debug(f"[update_airtable_record] מידע מעובד לשליחה: {json.dumps(processed_data, ensure_ascii=False)}")
@@ -1360,6 +1310,7 @@ class WhatsAppService:
 
         if chat_id not in self.survey_state:
             logger.info(f"[handle_file_message] אין שאלון פעיל עבור: {chat_id}")
+            await self.send_message_with_retry(chat_id, "אין שאלון פעיל כרגע. אנא התחל שאלון חדש.")
             return
 
         try:
@@ -1372,6 +1323,12 @@ class WhatsAppService:
             logger.info(f"[handle_file_message] מעבד קובץ עבור שאלה: {question_id}")
             logger.info(f"[handle_file_message] מצב נוכחי בשאלון - שאלה מספר: {state['current_question'] + 1} מתוך {len(survey.questions)}")
             logger.debug(f"[handle_file_message] פרטי השאלה הנוכחית: {json.dumps(current_question, ensure_ascii=False)}")
+
+            # בדיקה שהשאלה הנוכחית היא מסוג file_upload
+            if current_question.get("type") != "file_upload":
+                logger.warning(f"[handle_file_message] התקבל קובץ אבל השאלה הנוכחית אינה מסוג file_upload: {current_question.get('type')}")
+                await self.send_message_with_retry(chat_id, "בשלב זה לא נדרש להעלות קובץ. אנא המשך לפי ההנחיות.")
+                return
 
             # וידוא שה-URL נגיש
             try:
@@ -1398,30 +1355,24 @@ class WhatsAppService:
                     if guessed_type:
                         mime_type = guessed_type
             logger.info(f"[handle_file_message] MIME type סופי: {mime_type}")
-            logger.debug(f"[handle_file_message] תהליך קביעת MIME type: מקורי={mime_type}, שם קובץ={file_name}")
 
             # יצירת שם קובץ אם לא סופק
             if not file_name:
                 extension = mimetypes.guess_extension(mime_type) or ''
                 file_name = f"file_{datetime.now().strftime('%Y%m%d_%H%M%S')}{extension}"
                 logger.info(f"[handle_file_message] נוצר שם קובץ אוטומטי: {file_name}")
-            logger.info(f"[handle_file_message] שם קובץ סופי: {file_name}")
 
             # הכנת הנתונים לאירטייבל בפורמט הנכון
-            # אירטייבל מצפה למערך של אובייקטים עם השדות url, filename, ו-type
             attachments = [{
                 "url": file_url,
                 "filename": file_name,
                 "type": mime_type
             }]
             
-            # בדיקה שהפורמט תקין
-            if not isinstance(attachments, list) or not all(isinstance(item, dict) and "url" in item for item in attachments):
-                logger.error(f"[handle_file_message] פורמט הקובץ לא תקין: {json.dumps(attachments, ensure_ascii=False)}")
-                await self.send_message_with_retry(chat_id, "מצטערים, הייתה שגיאה בעיבוד הקובץ. נא לנסות שוב.")
-                return
-                
-            logger.info(f"[handle_file_message] מידע הקובץ לאירטייבל: {json.dumps(attachments, ensure_ascii=False)}")
+            # שמירה במצב השאלון
+            state["answers"] = state.get("answers", {})
+            state["answers"][question_id] = attachments
+            logger.info(f"[handle_file_message] נשמר מידע הקובץ במצב השאלון: {json.dumps(attachments, ensure_ascii=False)}")
 
             # שמירה באירטייבל
             update_data = {
@@ -1437,16 +1388,6 @@ class WhatsAppService:
             
             if success:
                 logger.info(f"[handle_file_message] הקובץ נשמר בהצלחה באירטייבל עבור שאלה {question_id}")
-                
-                # שמירת מידע על הקובץ במצב השאלון
-                state["last_file_upload"] = {
-                    "question_id": question_id,
-                    "file_url": file_url,
-                    "file_name": file_name,
-                    "mime_type": mime_type
-                }
-                logger.info(f"[handle_file_message] עודכן מידע הקובץ האחרון במצב השאלון: {json.dumps(state['last_file_upload'], ensure_ascii=False)}")
-                
                 # התקדמות לשאלה הבאה
                 await self.process_survey_next_question(chat_id)
             else:
