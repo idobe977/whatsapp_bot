@@ -6,12 +6,10 @@ from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from project.utils.logger import logger
 from project.models.survey import SurveyDefinition
-from .whatsapp_base_service import WhatsAppBaseService
-from .whatsapp_message_handler import WhatsAppMessageHandler
 from .whatsapp_ai_service import WhatsAppAIService
 from .whatsapp_meeting_service import WhatsAppMeetingService
 
-class WhatsAppSurveyService(WhatsAppBaseService, WhatsAppMessageHandler, WhatsAppAIService, WhatsAppMeetingService):
+class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
     def __init__(self, instance_id: str, api_token: str):
         super().__init__(instance_id, api_token)
         self.surveys = self.load_surveys()

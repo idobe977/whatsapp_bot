@@ -8,7 +8,7 @@ import os
 from dotenv import load_dotenv
 from project.utils.logger import logger
 from project.models.survey import SurveyDefinition
-from .whatsapp_base_service import WhatsAppBaseService
+from .whatsapp_message_handler import WhatsAppMessageHandler
 
 load_dotenv()
 
@@ -16,7 +16,7 @@ load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 model = genai.GenerativeModel("gemini-2.0-pro-exp-02-05")
 
-class WhatsAppAIService(WhatsAppBaseService):
+class WhatsAppAIService(WhatsAppMessageHandler):
     def __init__(self, instance_id: str, api_token: str):
         super().__init__(instance_id, api_token)
         self.reflection_cache = {}  # Cache for AI reflections

@@ -4,13 +4,14 @@ import traceback
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 import os
+import pytz
 from project.utils.logger import logger
 from project.models.survey import SurveyDefinition
-from .whatsapp_base_service import WhatsAppBaseService
+from .whatsapp_message_handler import WhatsAppMessageHandler
 from .calendar_service import CalendarService, TimeSlot
 import aiohttp
 
-class WhatsAppMeetingService(WhatsAppBaseService):
+class WhatsAppMeetingService(WhatsAppMessageHandler):
     def __init__(self, instance_id: str, api_token: str):
         super().__init__(instance_id, api_token)
         self.calendar_manager = CalendarService()
