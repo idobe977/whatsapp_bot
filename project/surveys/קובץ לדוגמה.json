@@ -32,10 +32,16 @@
     "welcome": "*תודה שהקדשת מזמנך!* 🙏\nנשמח לשמוע את דעתך על השירות שלנו. 🎯\n*המשוב שלך חשוב לנו!* 🎁",
     "completion": {
       "text": "תודה רבה על המשוב שלך! 🙏\nנשמח להיות איתך בקשר בקרוב.",
-      "should_generate_summary": true
+      "should_generate_summary": false
     },
     "timeout": "השאלון בוטל עקב חוסר פעילות. אנא התחל מחדש.",
-    "error": "מצטערים, הייתה שגיאה בעיבוד התשובה. נא לנסות שוב."
+    "error": "מצטערים, הייתה שגיאה בעיבוד התשובה. נא לנסות שוב.",
+    "file_upload": {
+      "success": "הקובץ התקבל בהצלחה! 🎉",
+      "invalid_type": "סוג הקובץ שנשלח אינו נתמך. אנא שלח קובץ מסוג: {allowed_types}",
+      "too_large": "הקובץ גדול מדי. הגודל המקסימלי המותר הוא 5MB",
+      "missing": "אנא שלח קובץ כדי להמשיך"
+    }
   },
   "ai_prompts": {
     "reflections": {
@@ -54,12 +60,6 @@
       "include_recommendations": false
     }
   },
-  "file_upload": {
-    "success": "הקובץ התקבל בהצלחה!",
-    "invalid_type": "סוג הקובץ שנשלח אינו נתמך. אנא שלח קובץ מסוג: {allowed_types}",
-    "too_large": "הקובץ גדול מדי. הגודל המקסימלי המותר הוא 5MB",
-    "missing": "אנא שלח קובץ כדי להמשיך"
-  },
   "questions": [
     {
       "id": "שם מלא",
@@ -75,12 +75,12 @@
       "type": "file",
       "text": "אנא שלח/י תמונת פרופיל",
       "allowed_types": ["image"]
-  },
-  {
+    },
+    {
       "id": "resume",
       "type": "file",
       "text": "אנא שלח/י את קורות החיים שלך בפורמט PDF",
       "allowed_types": ["document"]
-  }
-]
+    }
+  ]
 }
