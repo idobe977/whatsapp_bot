@@ -1,115 +1,112 @@
-# WhatsApp Survey Bot
+# WhatsApp Survey Bot 🤖
 
-A WhatsApp bot that conducts dynamic surveys and manages responses using Green API, Airtable and Gemini AI.
+בוט WhatsApp חכם המנהל סקרים דינמיים ומשתמש ב-Green API, Airtable ו-Gemini AI.
 
-## Security Notice ⚠️
+## ⚠️ הערת אבטחה
 
-**IMPORTANT**: Never commit sensitive credentials to Git! The following files should be kept secure and not shared:
+**חשוב**: לעולם אין להעלות פרטי התחברות רגישים ל-Git! יש לשמור על הקבצים הבאים בצורה מאובטחת:
 - `credentials/service-account.json`
 - `.env`
 
-## Credentials Setup
+## 🌟 תכונות עיקריות
 
-1. **Google Calendar Service Account**:
-   - Create a new service account in Google Cloud Console
-   - Download the JSON key file
-   - Create a `credentials` directory locally: `mkdir credentials`
-   - Save the key as `credentials/service-account.json`
-   - Share your calendar with the service account email
-   - **DO NOT commit this file to Git!**
+### סקרים דינמיים
+- טעינת סקרים מקבצי JSON
+- תמיכה במגוון סוגי שאלות
+- זרימת שאלות מותנית (flow logic)
+- החלפת טקסט דינמית עם ערכים מ-Airtable
 
-2. **Environment Variables**:
-   - Copy `.env.example` to `.env`: `cp .env.example .env`
-   - Fill in your credentials in `.env`
-   - **DO NOT commit `.env` to Git!**
+### יכולות AI מתקדמות
+- תמלול הודעות קוליות באמצעות Gemini AI
+- יצירת רפלקציות אוטומטיות לתשובות המשתמש
+- סיכומים חכמים בסוף השאלון
+- תגובות אמפתיות ומקצועיות
 
-### For Production Deployment
+### ניהול קבצים
+- הצגת מסמכי PDF ותמונות למשתמשים
+- קבלת ועיבוד קבצים מהמשתמשים
+- תמיכה בכותרות לקבצים ושאלות המשך
+- וולידציה אוטומטית של סוגי קבצים
+- אחסון מאובטח ב-Airtable
 
-For secure deployment (e.g., on Render.com):
-1. **DO NOT** upload credentials files to Git
-2. Instead, use environment variables or secrets management:
-   - For service account: Copy the entire content of `service-account.json` and save it as an environment variable `GOOGLE_SERVICE_ACCOUNT`
-   - The bot will automatically create the credentials file from this environment variable
+### ניהול פגישות
+- קביעת פגישות אוטומטית עם Google Calendar
+- בדיקת זמינות חכמה
+- שליחת הזמנות אוטומטית
 
-## Features
+### ניהול משתמשים
+- מעקב אחר סטטוס המשתמש
+- טיימאאוט אוטומטי לאחר 30 דקות
+- אפשרות להפסקת שאלון באמצעות פקודות
+- שמירת מצב ותשובות בזיכרון
 
-- Dynamic survey loading from JSON files
-- Multiple survey types support
-- Voice message transcription using Gemini AI
-- Poll support with single and multiple choice options
-- Conditional flow logic based on user responses
-- Dynamic text replacement with Airtable field values
-- Automatic meeting scheduling with Google Calendar
-- Response storage in Airtable with caching
-- Automatic summary generation using Gemini AI
-- Empathetic and professional AI-powered reflections
-- Timeout handling for inactive sessions
-- File handling capabilities:
-  - Display PDF documents and images to users
-  - Request and process file uploads from users
-  - Support for file captions and follow-up questions
-  - Automatic file type validation
-  - Secure file storage in Airtable
+### התראות ומעקב
+- שליחת התראות לקבוצת WhatsApp בסיום שאלון
+- עדכון סטטוס אוטומטי ב-Airtable
+- שמירת תשובות עם מטמון (caching)
 
-## Prerequisites
+## 🛠️ הגדרה ראשונית
 
-1. Google Cloud Platform Account:
-   - Create a new project
-   - Enable Google Calendar API
-   - Create a Service Account:
-     - Go to "IAM & Admin" > "Service Accounts"
-     - Click "Create Service Account"
-     - Name it (e.g. "whatsapp-bot-calendar")
-     - Create a JSON key and download it
-   - Place the JSON key file in `credentials/service-account.json`
-   - Share your Google Calendar with the service account email
-     (The email looks like: `bot-name@project-id.iam.gserviceaccount.com`)
+### Google Cloud Platform
+1. צור פרויקט חדש
+2. הפעל את Google Calendar API
+3. צור חשבון שירות (Service Account):
+   - עבור ל-"IAM & Admin" > "Service Accounts"
+   - לחץ על "Create Service Account"
+   - תן לו שם (למשל "whatsapp-bot-calendar")
+   - צור מפתח JSON והורד אותו
+4. שמור את קובץ המפתח ב-`credentials/service-account.json`
+5. שתף את לוח השנה שלך עם כתובת המייל של חשבון השירות
+   (הכתובת נראית כך: `bot-name@project-id.iam.gserviceaccount.com`)
 
-2. Green API Account:
-   - Register and get instance ID and API token
-   - Configure webhook URL in Green API dashboard
+### Green API
+1. הירשם וקבל מזהה ומפתח API
+2. הגדר כתובת webhook בלוח הבקרה של Green API
 
-3. Airtable Account:
-   - Create base and tables
-   - Get API key and base ID
+### Airtable
+1. צור בסיס וטבלאות
+2. קבל מפתח API ומזהה בסיס
 
-## Setup
+## 📦 התקנה
 
-1. Clone the repository
+1. שכפל את המאגר
 ```bash
 git clone <your-repo-url>
 cd whatsapp-survey-bot
 ```
 
-2. Install dependencies
+2. התקן תלויות
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Set up environment variables in `.env`:
+3. הגדר משתני סביבה ב-`.env`:
 ```env
-# Green API Configuration
+# Green API
 ID_INSTANCE=your_green_api_instance_id
 API_TOKEN_INSTANCE=your_green_api_token
 
-# Gemini AI Configuration
+# Gemini AI
 GEMINI_API_KEY=your_gemini_api_key
 
-# Airtable Configuration
+# Airtable
 AIRTABLE_API_KEY=your_airtable_api_key
 AIRTABLE_BASE_ID=your_airtable_base_id
 AIRTABLE_BUSINESS_SURVEY_TABLE_ID=your_business_table_id
 AIRTABLE_RESEARCH_SURVEY_TABLE_ID=your_research_table_id
 
-# Google Service Account (for production)
+# Google Service Account (לסביבת ייצור)
 GOOGLE_SERVICE_ACCOUNT={"type":"service_account","project_id":"..."}
 ```
 
-4. Create your survey definitions in the `surveys` directory using JSON format:
+## 📝 הגדרת סקרים
+
+צור הגדרות סקר בתיקיית `surveys` בפורמט JSON:
+
 ```json
 {
-  "name": "Survey Name",
-  "trigger_phrases": ["trigger1", "trigger2"],
+  "name": "שם הסקר",
+  "trigger_phrases": ["טריגר1", "טריגר2"],
   "airtable": {
     "base_id": "your_base_id",
     "table_id": "your_table_id"
@@ -123,36 +120,47 @@ GOOGLE_SERVICE_ACCOUNT={"type":"service_account","project_id":"..."}
     "days_to_show": 14,
     "timezone": "Asia/Jerusalem",
     "calendar_id": "primary",
-    "meeting_title_template": "Meeting with {{name}}",
-    "meeting_description_template": "Scheduled via WhatsApp\nPhone: {{phone}}"
+    "meeting_title_template": "פגישה עם {{name}}",
+    "meeting_description_template": "נקבע דרך WhatsApp\nטלפון: {{phone}}"
+  },
+  "ai_prompts": {
+    "reflections": {
+      "empathetic": {
+        "prompt": "צור תגובה אמפתית",
+        "enabled": true
+      },
+      "professional": {
+        "prompt": "צור תגובה מקצועית",
+        "enabled": true
+      }
+    },
+    "summary": {
+      "prompt": "צור סיכום",
+      "include_recommendations": true,
+      "max_length": 500
+    }
   },
   "questions": [
     {
       "id": "question_id",
-      "type": "text/poll/file_display/file_upload",
-      "text": "Question text {{airtable_field}}",
-      "options": ["option1", "option2"],
+      "type": "text/poll/file/file_to_send",
+      "text": "טקסט השאלה {{airtable_field}}",
+      "options": ["אופציה1", "אופציה2"],
       "file": {
         "path": "path/to/file",
-        "caption": "File description",
-        "type": "document/image"
+        "caption": "תיאור הקובץ"
       },
-      "allowed_types": ["pdf", "image"],
-      "follow_up": {
-        "id": "follow_up_question",
-        "type": "text",
-        "text": "Follow-up question text"
-      },
+      "allowed_types": ["document", "image"],
       "reflection": {
         "type": "empathetic/professional",
         "enabled": true
       },
       "flow": {
         "if": {
-          "answer": "specific_answer",
+          "answer": "תשובה ספציפית",
           "then": {
-            "say": "Custom message",
-            "goto": "next_question_id"
+            "say": "הודעה מותאמת",
+            "goto": "מזהה_שאלה_הבאה"
           }
         }
       }
@@ -161,98 +169,125 @@ GOOGLE_SERVICE_ACCOUNT={"type":"service_account","project_id":"..."}
 }
 ```
 
-## Deployment to Render
+## 🚀 פריסה ל-Render
 
-1. Push your code to GitHub
+1. העלה את הקוד ל-GitHub
 
-2. Create new Web Service on Render:
-   - Connect your GitHub repository
-   - Set build command: `pip install -r requirements.txt`
-   - Set start command: `python server.py`
-   - Add all environment variables
-   - Set Python version to 3.9 or higher
+2. צור שירות Web חדש ב-Render:
+   - חבר את מאגר ה-GitHub שלך
+   - הגדר פקודת בנייה: `pip install -r requirements.txt`
+   - הגדר פקודת הפעלה: `python server.py`
+   - הוסף את כל משתני הסביבה
+   - הגדר גרסת Python ל-3.9 ומעלה
 
-3. Create the credentials directory and upload service account JSON:
+3. צור את תיקיית ההרשאות והעלה את קובץ חשבון השירות:
    ```bash
    mkdir -p credentials
-   # Copy your service-account.json to credentials/
+   # העתק את service-account.json לתיקיית credentials/
    ```
 
-## Environment Variables
+## 🔒 הערות אבטחה
 
-Required environment variables:
-- `ID_INSTANCE`
-- `API_TOKEN_INSTANCE`
-- `GEMINI_API_KEY`
-- `AIRTABLE_API_KEY`
-- `AIRTABLE_BASE_ID`
-- `AIRTABLE_BUSINESS_SURVEY_TABLE_ID`
-- `AIRTABLE_RESEARCH_SURVEY_TABLE_ID`
+- כל המידע הרגיש נשמר במשתני סביבה
+- יש לשמור על מפתח JSON של חשבון השירות בצורה מאובטחת
+- נדרש HTTPS בסביבת ייצור
+- יש להגביל גישה לנקודות הקצה
 
-## Local Development
+## 📞 תמיכה
 
-1. Run the server:
-```bash
-python server.py
-```
-
-## Security Notes
-
-- All sensitive data is stored in environment variables
-- Service account JSON key should be kept secure
-- HTTPS is required in production
-- Access to endpoints should be restricted
-
-## Support
-
-For questions and support, contact the developer.
+לשאלות ותמיכה, צור קשר עם המפתח.
 
 ## File Handling
 
-The bot supports two types of file interactions:
+The bot supports three types of file interactions:
 
-1. **Displaying Files (`file_display`)**:
-   - Supports PDF documents and images
-   - Can include captions with the files
-   - Allows follow-up questions for feedback
+1. **Sending Files to Users (`file_to_send`)**:
+   - Send files from the bot to users
+   - Files are stored locally in the `assets` directory
+   - Supports all WhatsApp-compatible file types
+   - Can include text messages before sending files
    - Example:
    ```json
    {
-     "id": "document_review",
-     "type": "file_display",
+     "id": "terms_review",
+     "type": "file_to_send",
      "text": "Please review this document:",
      "file": {
-       "path": "documents/terms.pdf",
-       "caption": "Terms of Service 📄",
-       "type": "document"
-     },
-     "follow_up": {
-       "id": "document_feedback",
-       "type": "text",
-       "text": "What do you think about the document?"
+       "path": "assets/terms.pdf",
+       "caption": "Terms of Service 📄"
      }
    }
    ```
 
-2. **Requesting Files (`file_upload`)**:
-   - Can specify allowed file types
-   - Supports validation of uploaded files
+2. **Requesting Files (`file`)**:
+   - Request and validate file uploads from users
    - Files are stored securely in Airtable
+   - Support for multiple file types in one question
    - Example:
    ```json
    {
-     "id": "signature_upload",
-     "type": "file_upload",
-     "text": "Please upload the signed document:",
-     "allowed_types": ["pdf", "image"]
+     "id": "portfolio",
+     "type": "file",
+     "text": "Please upload your portfolio:",
+     "allowed_types": ["document", "image"]
    }
    ```
 
+3. **File Type Validation**:
+   - Comprehensive MIME type validation
+   - Support for multiple file types:
+     - `image`: JPEG, PNG, GIF, WEBP
+     - `document`: PDF, DOC, DOCX
+     - `video`: MP4, 3GPP, QuickTime, MKV
+     - `audio`: MP3, OGG, WAV, M4A, WEBM
+     - `any`: Accept any file type
+   - Human-readable error messages in Hebrew
+   - Size limit validation (5MB by default)
+
 ### File Storage
 
-- Files are automatically converted to base64 for storage in Airtable
-- Maximum file size: 100MB (Green API limitation)
-- Supported file types:
-  - Images (JPEG, PNG, GIF)
-  - Documents (PDF)
-  - Other file types as supported by WhatsApp 
+Files can be stored in two ways:
+1. **Bot Files** (`file_to_send`):
+   - Stored in the `assets` directory
+   - Part of the project repository
+   - Quick access and delivery
+   - Perfect for terms of service, forms, etc.
+
+2. **User Uploads** (`file`):
+   - Stored in Airtable as attachments
+   - Automatic conversion to Airtable format
+   - Secure storage with backup
+   - Perfect for user submissions
+
+### File Type Configuration
+
+The bot supports flexible file type configuration:
+```python
+ALLOWED_FILE_TYPES = {
+    'image': ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+    'document': ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+    'video': ['video/mp4', 'video/3gpp', 'video/quicktime', 'video/x-matroska'],
+    'audio': ['audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/x-m4a', 'audio/webm'],
+    'any': None  # Accept any file type
+}
+```
+
+You can combine multiple types in one question:
+```json
+{
+  "id": "portfolio",
+  "type": "file",
+  "text": "Upload your portfolio (document or images):",
+  "allowed_types": ["document", "image"]
+}
+```
+
+### Project Structure
+
+```
+project/
+├── assets/           # Store bot files to send to users
+├── surveys/          # Survey JSON definitions
+├── services/         # Bot service modules
+└── ...
+``` 

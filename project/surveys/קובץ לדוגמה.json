@@ -62,15 +62,6 @@
   },
   "questions": [
     {
-      "id": "שם מלא",
-      "type": "text",
-      "text": "לפני שנתחיל, *איך אוכל לפנות אליך?* 👋",
-      "reflection": {
-        "type": "empathetic",
-        "enabled": true
-      }
-    },
-    {
       "id": "terms_review",
       "type": "file_to_send",
       "text": "לפני שנתחיל, אנא קרא/י את תנאי השימוש:",
@@ -78,6 +69,51 @@
         "path": "assets/terms.pdf",
         "caption": "תנאי השימוש שלנו 📄"
       }
+    },
+    {
+      "id": "שם מלא",
+      "type": "text",
+      "text": "מעולה! *איך אוכל לפנות אליך?* 👋",
+      "reflection": {
+        "type": "empathetic",
+        "enabled": true
+      }
+    },
+    {
+      "id": "profile_pic",
+      "type": "file",
+      "text": "אנא שלח/י תמונת פרופיל 📸",
+      "allowed_types": ["image"]
+    },
+    {
+      "id": "resume",
+      "type": "file",
+      "text": "אנא שלח/י את קורות החיים שלך בפורמט PDF 📄",
+      "allowed_types": ["document"]
+    },
+    {
+      "id": "intro_video",
+      "type": "file",
+      "text": "אנא שלח/י סרטון קצר המציג את עצמך 🎥",
+      "allowed_types": ["video"]
+    },
+    {
+      "id": "voice_sample",
+      "type": "file",
+      "text": "אנא שלח/י הקלטה קצרה של הקול שלך 🎤",
+      "allowed_types": ["audio"]
+    },
+    {
+      "id": "any_file",
+      "type": "file",
+      "text": "אנא שלח/י כל קובץ שתרצה/י לשתף 📎",
+      "allowed_types": ["any"]
+    },
+    {
+      "id": "portfolio",
+      "type": "file",
+      "text": "אנא שלח/י את התיק עבודות שלך (מסמך או מצגת או תמונות) 📁",
+      "allowed_types": ["document", "image"]
     }
   ]
 }

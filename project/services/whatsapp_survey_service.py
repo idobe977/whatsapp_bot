@@ -14,7 +14,8 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
         super().__init__(instance_id, api_token)
         self.surveys = self.load_surveys()
         self.survey_state = {}  # Track survey state for each user
-        self.SURVEY_TIMEOUT = 30  # Minutes
+        self.REMINDER_TIMEOUT = 2  # Minutes until reminder
+        self.SURVEY_TIMEOUT = 15  # Minutes until survey termination
         self.ALLOWED_FILE_TYPES = {
             'image': ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
             'document': ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
@@ -206,22 +207,158 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
             while True:
                 current_time = datetime.now()
                 to_remove = []
+                to_remind = []
                 
                 for chat_id, state in self.survey_state.items():
                     if 'last_activity' in state:
-                        if (current_time - state['last_activity']).total_seconds() > self.SURVEY_TIMEOUT * 60:
-                            to_remove.append(chat_id)
+                        inactive_time = (current_time - state['last_activity']).total_seconds()
+                        
+                        # Check if we need to send a reminder
+                        if inactive_time > self.REMINDER_TIMEOUT * 60 and not state.get('reminder_sent', False):
+                            to_remind.append(chat_id)
+                            state['reminder_sent'] = True
                             
+                        # Check if we need to terminate the survey
+                        if inactive_time > self.SURVEY_TIMEOUT * 60:
+                            to_remove.append(chat_id)
+                
+                # Send reminders
+                for chat_id in to_remind:
+                    await self.send_message_with_retry(
+                        chat_id, 
+                        "שים/י לב - עברו כבר 2 דקות מאז תשובתך האחרונה. האם את/ה עדיין כאן? 🤔\nאם לא תענה/י תוך 13 דקות, השאלון יסתיים אוטומטית."
+                    )
+                            
+                # Remove stale surveys
                 for chat_id in to_remove:
                     state = self.survey_state.pop(chat_id)
                     logger.info(f"Cleaned up stale survey state for {chat_id}")
-                    await self.send_message_with_retry(chat_id, "השאלון בוטל עקב חוסר פעילות. אנא התחל מחדש.")
+                    await self.send_message_with_retry(
+                        chat_id, 
+                        "השאלון בוטל עקב חוסר פעילות של 15 דקות. אנא התחל מחדש כשיהיה לך זמן פנוי 😊"
+                    )
+                    
+                    # Update Airtable if record exists
+                    if 'record_id' in state and 'current_survey' in state:
+                        survey = next((s for s in self.surveys if s.name == state['current_survey']), None)
+                        if survey:
+                            asyncio.create_task(
+                                self.update_airtable_record(
+                                    state['record_id'],
+                                    {"סטטוס": "בוטל - timeout"},
+                                    survey
+                                )
+                            )
                 
-                # Wait for 5 minutes before next cleanup
-                await asyncio.sleep(300)
+                # Wait for 30 seconds before next cleanup
+                await asyncio.sleep(30)
         
         # Create the cleanup task
         self.cleanup_task = asyncio.create_task(cleanup_loop())
+
+    async def process_survey_answer(self, chat_id: str, answer: Dict[str, str]) -> None:
+        """Process a survey answer"""
+        state = self.survey_state.get(chat_id)
+        if not state:
+            return
+
+        # Update last activity time and reset reminder flag
+        state["last_activity"] = datetime.now()
+        state["reminder_sent"] = False
+
+        survey = state["survey"]
+        current_question = survey.questions[state["current_question"]]
+
+        # Update Airtable with the answer
+        update_data = {
+            current_question["id"]: answer["content"]
+        }
+
+        # Check if the current question is a file type question
+        if current_question["type"] != "file":
+            logger.warning(f"Received answer but current question is not a file type. Current question type: {current_question['type']}")
+            return
+
+        # Get file data
+        file_data = answer.get("fileMessageData", {})
+        mime_type = file_data.get("mimeType")
+        download_url = file_data.get("downloadUrl")
+        caption = file_data.get("caption", "")
+        file_name = file_data.get("fileName", "")
+
+        # Validate file type
+        allowed_types = current_question.get("allowed_types", ["any"])
+        if "any" not in allowed_types:
+            valid_mime_types = []
+            for file_type in allowed_types:
+                if file_type in self.ALLOWED_FILE_TYPES:
+                    valid_mime_types.extend(self.ALLOWED_FILE_TYPES[file_type])
+            
+            logger.debug(f"Valid mime types for this question: {valid_mime_types}")
+            logger.debug(f"Received file mime type: {mime_type}")
+            
+            if mime_type not in valid_mime_types:
+                # Get human-readable file type names
+                type_names = {
+                    'image': 'תמונה',
+                    'document': 'מסמך',
+                    'video': 'סרטון',
+                    'audio': 'קובץ שמע'
+                }
+                allowed_type_names = [type_names.get(t, t) for t in allowed_types]
+                error_message = state["survey"].messages.get("file_upload", {}).get(
+                    "invalid_type",
+                    "סוג הקובץ שנשלח אינו נתמך. אנא שלח {allowed_types}"
+                ).format(allowed_types=", ".join(allowed_type_names))
+                
+                await self.send_message_with_retry(chat_id, error_message)
+                return
+
+        # Prepare file attachment object for Airtable
+        attachment = {
+            "url": download_url,
+            "filename": file_name or f"file_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+        }
+
+        # Get field name - use the question ID as the field name
+        field_name = current_question["id"]
+        
+        logger.debug(f"Updating Airtable record with attachment in field: {field_name}")
+
+        # Update Airtable with the attachment
+        if await self.update_airtable_record(
+            state["record_id"],
+            {field_name: [attachment]},  # Airtable expects a list of attachment objects
+            state["survey"]
+        ):
+            # Send success message - try to get from different possible locations
+            survey = state["survey"]
+            success_message = "הקובץ נשמר בהצלחה!"  # Default message
+            
+            # Check in survey messages
+            if hasattr(survey, 'messages') and survey.messages:
+                if isinstance(survey.messages, dict):
+                    # Try to get from file_upload directly in messages
+                    if 'file_upload' in survey.messages and isinstance(survey.messages['file_upload'], dict):
+                        success_message = survey.messages['file_upload'].get('success', success_message)
+                    # Try to get from top-level file_upload object
+                    elif hasattr(survey, 'file_upload') and isinstance(survey.file_upload, dict):
+                        success_message = survey.file_upload.get('success', success_message)
+            
+            logger.debug(f"Using success message: {success_message}")
+            await self.send_message_with_retry(
+                chat_id,
+                success_message
+            )
+
+            # Move to next question
+            state["current_question"] += 1
+            await self.send_next_question(chat_id)
+        else:
+            await self.send_message_with_retry(
+                chat_id,
+                "מצטערים, הייתה שגיאה בשמירת הקובץ. נא לנסות שוב."
+            )
 
 def load_surveys_from_json() -> List[SurveyDefinition]:
     """Load all survey definitions from JSON files in the surveys directory"""
