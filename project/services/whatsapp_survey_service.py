@@ -2,12 +2,14 @@ import asyncio
 import json
 import glob
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
 from project.utils.logger import logger
 from project.models.survey import SurveyDefinition
 from .whatsapp_ai_service import WhatsAppAIService
 from .whatsapp_meeting_service import WhatsAppMeetingService
+import aiohttp
+import mimetypes
 
 class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
     def __init__(self, instance_id: str, api_token: str):
@@ -148,6 +150,63 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
                 "מצטערים, הייתה שגיאה בעיבוד הקובץ. נא לנסות שוב."
             )
 
+    async def get_airtable_file(self, file_id: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        """
+        מקבל קובץ מאירטייבל לפי מזהה
+        מחזיר: (url, mime_type, filename) או (None, None, None) אם לא נמצא
+        """
+        try:
+            record = await self.get_airtable_record(file_id, "Bot_Files")
+            if not record:
+                logger.error(f"File record {file_id} not found in Airtable")
+                return None, None, None
+
+            file_url = record.get("file_url")
+            file_name = record.get("file_name", "file")
+            mime_type = record.get("file_type")
+
+            if not file_url:
+                logger.error(f"No file URL found for record {file_id}")
+                return None, None, None
+
+            return file_url, mime_type, file_name
+
+        except Exception as e:
+            logger.error(f"Error fetching file from Airtable: {str(e)}")
+            return None, None, None
+
+    async def send_bot_file(self, chat_id: str, file_data: Dict) -> bool:
+        """
+        שולח קובץ למשתמש מתוך אירטייבל
+        """
+        try:
+            file_id = file_data.get("file_id")
+            if not file_id:
+                logger.error("No file_id provided")
+                return False
+
+            file_url, mime_type, file_name = await self.get_airtable_file(file_id)
+            if not file_url:
+                fallback_text = file_data.get("fallback_text", "מצטערים, לא הצלחנו להציג את הקובץ")
+                await self.send_message_with_retry(chat_id, fallback_text)
+                return False
+
+            # שליחת הקובץ בהתאם לסוג שלו
+            if mime_type and mime_type.startswith('image/'):
+                await self.send_image(chat_id, file_url, caption=file_name)
+            elif mime_type and mime_type.startswith('video/'):
+                await self.send_video(chat_id, file_url, caption=file_name)
+            elif mime_type and mime_type.startswith('audio/'):
+                await self.send_audio(chat_id, file_url, caption=file_name)
+            else:
+                await self.send_document(chat_id, file_url, caption=file_name)
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error sending bot file: {str(e)}")
+            return False
+
     async def send_next_question(self, chat_id: str) -> None:
         """Send the next survey question"""
         state = self.survey_state.get(chat_id)
@@ -163,7 +222,6 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
             elif question["type"] == "meeting_scheduler":
                 await self.handle_meeting_scheduler(chat_id, question)
             elif question["type"] == "file":
-                # הוספת הודעה מותאמת לשאלת קובץ
                 file_message = question.get("text", "אנא שלח קובץ")
                 if "allowed_types" in question:
                     allowed_types = question["allowed_types"]
@@ -171,6 +229,15 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
                         file_types_str = ", ".join(allowed_types)
                         file_message += f"\nסוגי קבצים מותרים: {file_types_str}"
                 await self.send_message_with_retry(chat_id, file_message)
+            elif question["type"] == "bot_file":
+                # שליחת הקובץ למשתמש ואז הטקסט של השאלה
+                file_data = question.get("file", {})
+                if await self.send_bot_file(chat_id, file_data):
+                    if question.get("text"):
+                        await self.send_message_with_retry(chat_id, question["text"])
+                else:
+                    # אם שליחת הקובץ נכשלה, נשלח רק את הטקסט
+                    await self.send_message_with_retry(chat_id, question.get("text", "מה דעתך?"))
             else:
                 await self.send_message_with_retry(chat_id, question["text"])
         else:
