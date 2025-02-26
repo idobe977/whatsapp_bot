@@ -97,47 +97,53 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
                     await self.send_message_with_retry(chat_id, error_message)
                     return
 
-            # Prepare file attachment object for Airtable
-            attachment = {
-                "url": download_url,
-                "filename": file_name or f"file_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            }
+            # הורדת הקובץ והעלאה לאירטייבל
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(download_url) as response:
+                        if response.status != 200:
+                            raise Exception(f"Failed to download file: {response.status}")
+                        
+                        file_content = await response.read()
+                        
+                        # יצירת אובייקט Attachment לאירטייבל
+                        attachment = {
+                            "filename": file_name or f"file_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                            "content": file_content,
+                            "type": mime_type
+                        }
 
-            # Get field name - use the question ID as the field name
-            field_name = current_question["id"]
-            
-            logger.debug(f"Updating Airtable record with attachment in field: {field_name}")
+                        # Get field name - use the question ID as the field name
+                        field_name = current_question["id"]
+                        
+                        logger.debug(f"Updating Airtable record with attachment in field: {field_name}")
 
-            # Update Airtable with the attachment
-            if await self.update_airtable_record(
-                state["record_id"],
-                {field_name: [attachment]},  # Airtable expects a list of attachment objects
-                state["survey"]
-            ):
-                # Send success message - try to get from different possible locations
-                survey = state["survey"]
-                success_message = "הקובץ נשמר בהצלחה!"  # Default message
-                
-                # Check in survey messages
-                if hasattr(survey, 'messages') and survey.messages:
-                    if isinstance(survey.messages, dict):
-                        # Try to get from file_upload directly in messages
-                        if 'file_upload' in survey.messages and isinstance(survey.messages['file_upload'], dict):
-                            success_message = survey.messages['file_upload'].get('success', success_message)
-                        # Try to get from top-level file_upload object
-                        elif hasattr(survey, 'file_upload') and isinstance(survey.file_upload, dict):
-                            success_message = survey.file_upload.get('success', success_message)
-                
-                logger.debug(f"Using success message: {success_message}")
-                await self.send_message_with_retry(
-                    chat_id,
-                    success_message
-                )
+                        # Update Airtable with the attachment
+                        if await self.update_airtable_record(
+                            state["record_id"],
+                            {field_name: [attachment]},  # Airtable expects a list of attachment objects
+                            state["survey"]
+                        ):
+                            # Send success message
+                            survey = state["survey"]
+                            success_message = "הקובץ נשמר בהצלחה!"  # Default message
+                            
+                            if hasattr(survey, 'messages') and survey.messages:
+                                if isinstance(survey.messages, dict):
+                                    if 'file_upload' in survey.messages and isinstance(survey.messages['file_upload'], dict):
+                                        success_message = survey.messages['file_upload'].get('success', success_message)
+                            
+                            logger.debug(f"Using success message: {success_message}")
+                            await self.send_message_with_retry(chat_id, success_message)
 
-                # Move to next question
-                state["current_question"] += 1
-                await self.send_next_question(chat_id)
-            else:
+                            # Move to next question
+                            state["current_question"] += 1
+                            await self.send_next_question(chat_id)
+                        else:
+                            raise Exception("Failed to update Airtable record")
+
+            except Exception as e:
+                logger.error(f"Error processing file: {str(e)}")
                 await self.send_message_with_retry(
                     chat_id,
                     "מצטערים, הייתה שגיאה בשמירת הקובץ. נא לנסות שוב."
@@ -161,12 +167,20 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
                 logger.error(f"File record {file_id} not found in Airtable")
                 return None, None, None
 
-            file_url = record.get("file_url")
-            file_name = record.get("file_name", "file")
-            mime_type = record.get("file_type")
+            # קבלת הקובץ משדה ה-Attachment
+            attachments = record.get("file", [])
+            if not attachments or not isinstance(attachments, list) or len(attachments) == 0:
+                logger.error(f"No file attachment found for record {file_id}")
+                return None, None, None
+
+            # אירטייבל מחזיר רשימה של attachments, אנחנו לוקחים את הראשון
+            attachment = attachments[0]
+            file_url = attachment.get("url")
+            file_name = attachment.get("filename") or record.get("name", "file")
+            mime_type = attachment.get("type")
 
             if not file_url:
-                logger.error(f"No file URL found for record {file_id}")
+                logger.error(f"No file URL found in attachment for record {file_id}")
                 return None, None, None
 
             return file_url, mime_type, file_name
