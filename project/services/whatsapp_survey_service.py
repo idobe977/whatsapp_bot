@@ -16,8 +16,10 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
         self.survey_state = {}  # Track survey state for each user
         self.SURVEY_TIMEOUT = 30  # Minutes
         self.ALLOWED_FILE_TYPES = {
-            'image': ['image/jpeg', 'image/png', 'image/gif'],
+            'image': ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
             'document': ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+            'video': ['video/mp4', 'video/3gpp', 'video/quicktime', 'video/x-matroska'],
+            'audio': ['audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/x-m4a', 'audio/webm'],
             'any': None  # None means accept any file type
         }
         self.MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB in bytes
@@ -64,6 +66,34 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
             download_url = file_data.get("downloadUrl")
             caption = file_data.get("caption", "")
             file_name = file_data.get("fileName", "")
+
+            # Validate file type
+            allowed_types = current_question.get("allowed_types", ["any"])
+            if "any" not in allowed_types:
+                valid_mime_types = []
+                for file_type in allowed_types:
+                    if file_type in self.ALLOWED_FILE_TYPES:
+                        valid_mime_types.extend(self.ALLOWED_FILE_TYPES[file_type])
+                
+                logger.debug(f"Valid mime types for this question: {valid_mime_types}")
+                logger.debug(f"Received file mime type: {mime_type}")
+                
+                if mime_type not in valid_mime_types:
+                    # Get human-readable file type names
+                    type_names = {
+                        'image': 'תמונה',
+                        'document': 'מסמך',
+                        'video': 'סרטון',
+                        'audio': 'קובץ שמע'
+                    }
+                    allowed_type_names = [type_names.get(t, t) for t in allowed_types]
+                    error_message = state["survey"].messages.get("file_upload", {}).get(
+                        "invalid_type",
+                        "סוג הקובץ שנשלח אינו נתמך. אנא שלח {allowed_types}"
+                    ).format(allowed_types=", ".join(allowed_type_names))
+                    
+                    await self.send_message_with_retry(chat_id, error_message)
+                    return
 
             # Prepare file attachment object for Airtable
             attachment = {
