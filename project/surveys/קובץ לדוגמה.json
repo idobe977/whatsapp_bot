@@ -70,13 +70,14 @@
         "enabled": true
       }
     },
-{
-  "id": "product_feedback",
-  "type": "bot_file",
-  "text": "הנה תמונה של המוצר החדש שלנו 🌟\nמה דעתך עליו?",
-  "file": {
-    "file_id": "file",
-    "fallback_text": "לא הצלחתי להציג את התמונה, אבל אשמח לשמוע את דעתך על המוצר החדש שלנו"
-  }
-}  ]
+    {
+      "id": "terms_review",
+      "type": "file_to_send",
+      "text": "לפני שנתחיל, אנא קרא/י את תנאי השימוש:",
+      "file": {
+        "path": "assets/terms.pdf",
+        "caption": "תנאי השימוש שלנו 📄"
+      }
+    }
+  ]
 }
