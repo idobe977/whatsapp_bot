@@ -32,10 +32,16 @@
     "welcome": "*תודה שהקדשת מזמנך!* 🙏\nנשמח לשמוע את דעתך על השירות שלנו. 🎯\n*המשוב שלך חשוב לנו!* 🎁",
     "completion": {
       "text": "תודה רבה על המשוב שלך! 🙏\nנשמח להיות איתך בקשר בקרוב.",
-      "should_generate_summary": true
+      "should_generate_summary": false
     },
     "timeout": "השאלון בוטל עקב חוסר פעילות. אנא התחל מחדש.",
-    "error": "מצטערים, הייתה שגיאה בעיבוד התשובה. נא לנסות שוב."
+    "error": "מצטערים, הייתה שגיאה בעיבוד התשובה. נא לנסות שוב.",
+    "file_upload": {
+      "success": "הקובץ התקבל בהצלחה! 🎉",
+      "invalid_type": "סוג הקובץ שנשלח אינו נתמך. אנא שלח קובץ מסוג: {allowed_types}",
+      "too_large": "הקובץ גדול מדי. הגודל המקסימלי המותר הוא 5MB",
+      "missing": "אנא שלח קובץ כדי להמשיך"
+    }
   },
   "ai_prompts": {
     "reflections": {
@@ -51,7 +57,7 @@
     "summary": {
       "prompt": "בהתבסס על התשובות לשאלון המשוב צור סיכום תמציתי בעברית שמתחיל במשפט פתיחה המציג את השירות, מסכם בצורה ברורה ומאורגנת את הנקודות העיקריות תוך שימוש באימוג'ים להדגשת נקודות חשובות, ושומר על טון מקצועי אך ידידותי.",
       "max_length": 500,
-      "include_recommendations": true
+      "include_recommendations": false
     }
   },
   "questions": [
@@ -65,13 +71,12 @@
       }
     },
     {
-      "id": "העלאת מסמך",
-      "type": "file_upload",
-      "text": "אנא העלה את המסמך החתום:",
-      "allowed_types": ["pdf", "image"],
-      "reflection": {
-        "type": "professional",
-        "enabled": true
+      "id": "terms_review",
+      "type": "file_to_send",
+      "text": "לפני שנתחיל, אנא קרא/י את תנאי השימוש:",
+      "file": {
+        "path": "assets/terms.pdf",
+        "caption": "תנאי השימוש שלנו 📄"
       }
     }
   ]

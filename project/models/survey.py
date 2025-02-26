@@ -22,7 +22,13 @@ class SurveyDefinition:
                 "should_generate_summary": True
             },
             "timeout": "השאלון בוטל עקב חוסר פעילות. אנא התחל מחדש.",
-            "error": "מצטערים, הייתה שגיאה בעיבוד התשובה. נא לנסות שוב."
+            "error": "מצטערים, הייתה שגיאה בעיבוד התשובה. נא לנסות שוב.",
+            "file_upload": {
+                "success": "הקובץ התקבל בהצלחה!",
+                "invalid_type": "סוג הקובץ שנשלח אינו נתמך. אנא שלח קובץ מסוג: {allowed_types}",
+                "too_large": "הקובץ גדול מדי. הגודל המקסימלי המותר הוא 5MB",
+                "missing": "אנא שלח קובץ כדי להמשיך"
+            }
         }
         self.ai_prompts = self.ai_prompts or {
             "reflections": {

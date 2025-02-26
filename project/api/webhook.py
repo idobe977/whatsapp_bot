@@ -1,8 +1,8 @@
 from typing import Dict
-from project.services.whatsapp_service import WhatsAppService
+from project.services.whatsapp_survey_service import WhatsAppSurveyService
 from project.utils.logger import logger
 
-async def handle_webhook_data(webhook_data: Dict, whatsapp: WhatsAppService) -> None:
+async def handle_webhook_data(webhook_data: Dict, whatsapp: WhatsAppSurveyService) -> None:
     """Process incoming webhook data"""
     try:
         if webhook_data["typeWebhook"] != "incomingMessageReceived":

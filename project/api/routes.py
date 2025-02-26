@@ -1,12 +1,12 @@
 from fastapi import FastAPI, Request
 import traceback
-from project.services.whatsapp_service import WhatsAppService
+from project.services.whatsapp_survey_service import WhatsAppSurveyService
 from project.utils.logger import logger
 import os
 
 app = FastAPI()
 
-whatsapp = WhatsAppService(
+whatsapp = WhatsAppSurveyService(
     instance_id=os.getenv("ID_INSTANCE"),
     api_token=os.getenv("API_TOKEN_INSTANCE")
 )
@@ -52,6 +52,10 @@ async def webhook(request: Request):
             logger.info("Received poll update")
             logger.debug(f"Poll data: {poll_data}")
             await whatsapp.handle_poll_response(chat_id, poll_data)
+            
+        elif message_data["typeMessage"] in ["imageMessage", "documentMessage", "videoMessage"]:
+            logger.info(f"Received file message of type: {message_data['typeMessage']}")
+            await whatsapp.handle_file_message(chat_id, message_data)
             
         return {"status": "ok"}
             
