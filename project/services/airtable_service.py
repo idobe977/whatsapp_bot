@@ -1,32 +1,42 @@
+import os
 from typing import Dict, List, Optional
 from pyairtable import Api
 from project.utils.logger import logger
 from project.utils.cache import Cache
 from project.models.survey import SurveyDefinition
+import aiohttp
 
 class AirtableService:
-    def __init__(self, api_key: str, base_id: str):
-        self.api = Api(api_key)
-        self.base_id = base_id
+    def __init__(self):
+        self.api_key = os.getenv("AIRTABLE_API_KEY")
+        self.base_url = "https://api.airtable.com/v0"
         self.cache = Cache()
         self._batch_queue: List[Dict] = []
 
-    def get_record(self, table_id: str, record_id: str) -> Optional[Dict]:
-        """Get record from Airtable with caching"""
-        cache_key = f"{table_id}:{record_id}"
-        cached_record = self.cache.get(cache_key)
-        if cached_record:
-            return cached_record
-
+    async def get_record(self, record_id: str, table_name: str) -> Optional[Dict]:
+        """
+        מקבל רשומה מאירטייבל לפי מזהה
+        """
         try:
-            table = self.api.table(self.base_id, table_id)
-            record = table.get(record_id)
-            if record and "fields" in record:
-                self.cache.set(cache_key, record["fields"])
-                return record["fields"]
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                url = f"{self.base_url}/{table_name}/{record_id}"
+                async with session.get(url, headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data.get("fields", {})
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"Airtable API error: {response.status} - {error_text}")
+                        return None
+
         except Exception as e:
-            logger.error(f"Error getting Airtable record: {e}")
-        return None
+            logger.error(f"Error in get_record: {str(e)}")
+            return None
 
     def create_record(self, table_id: str, data: Dict) -> Optional[str]:
         """Create new record in Airtable"""
