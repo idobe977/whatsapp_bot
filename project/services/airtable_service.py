@@ -50,15 +50,19 @@ class AirtableService:
                 "fields": data
             }
             
+            logger.debug(f"Creating record in table {table_id} with data: {data}")  # הוספת לוג
+            
             async with aiohttp.ClientSession() as session:
                 url = f"{self.base_url}/{table_id}"
                 async with session.post(url, headers=headers, json=payload) as response:
+                    response_text = await response.text()
+                    logger.debug(f"Airtable response: {response.status} - {response_text}")  # הוספת לוג
+                    
                     if response.status == 200:
                         data = await response.json()
                         return data.get("id")
                     else:
-                        error_text = await response.text()
-                        logger.error(f"Airtable API error: {response.status} - {error_text}")
+                        logger.error(f"Airtable API error: {response.status} - {response_text}")
                         return None
 
         except Exception as e:
@@ -151,6 +155,7 @@ class AirtableService:
                 "שם מלא": sender_name,
                 "סטטוס": "חדש"
             }
+            logger.debug(f"Creating initial record for survey {survey.name} with data: {record}")  # הוספת לוג
             return await self.create_record(survey.airtable_table_id, record)
         except Exception as e:
             logger.error(f"Error creating initial record: {str(e)}")
