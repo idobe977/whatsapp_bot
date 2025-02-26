@@ -1,19 +1,19 @@
 import os
 from typing import Dict, List, Optional
-from pyairtable import Api
+import aiohttp
 from project.utils.logger import logger
 from project.utils.cache import Cache
 from project.models.survey import SurveyDefinition
-import aiohttp
 
 class AirtableService:
     def __init__(self):
         self.api_key = os.getenv("AIRTABLE_API_KEY")
-        self.base_url = "https://api.airtable.com/v0"
+        self.base_id = os.getenv("AIRTABLE_BASE_ID")
+        self.base_url = f"https://api.airtable.com/v0/{self.base_id}"
         self.cache = Cache()
         self._batch_queue: List[Dict] = []
 
-    async def get_record(self, record_id: str, table_name: str) -> Optional[Dict]:
+    async def get_record(self, record_id: str, table_id: str) -> Optional[Dict]:
         """
         מקבל רשומה מאירטייבל לפי מזהה
         """
@@ -24,7 +24,7 @@ class AirtableService:
             }
             
             async with aiohttp.ClientSession() as session:
-                url = f"{self.base_url}/{table_name}/{record_id}"
+                url = f"{self.base_url}/{table_id}/{record_id}"
                 async with session.get(url, headers=headers) as response:
                     if response.status == 200:
                         data = await response.json()
@@ -38,40 +38,57 @@ class AirtableService:
             logger.error(f"Error in get_record: {str(e)}")
             return None
 
-    def create_record(self, table_id: str, data: Dict) -> Optional[str]:
-        """Create new record in Airtable"""
+    async def create_record(self, table_id: str, data: Dict) -> Optional[str]:
+        """יצירת רשומה חדשה באירטייבל"""
         try:
-            table = self.api.table(self.base_id, table_id)
-            response = table.create(data)
-            return response["id"]
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "fields": data
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                url = f"{self.base_url}/{table_id}"
+                async with session.post(url, headers=headers, json=payload) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data.get("id")
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"Airtable API error: {response.status} - {error_text}")
+                        return None
+
         except Exception as e:
-            logger.error(f"Error creating Airtable record: {e}")
+            logger.error(f"Error creating record: {str(e)}")
             return None
 
-    def update_record(self, table_id: str, record_id: str, data: Dict) -> bool:
-        """Update record in Airtable with batching support"""
+    async def update_record(self, table_id: str, record_id: str, data: Dict) -> bool:
+        """עדכון רשומה באירטייבל"""
         try:
-            # Update cache
-            cache_key = f"{table_id}:{record_id}"
-            cached_record = self.cache.get(cache_key)
-            if cached_record:
-                cached_record.update(data)
-                self.cache.set(cache_key, cached_record)
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "fields": data
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                url = f"{self.base_url}/{table_id}/{record_id}"
+                async with session.patch(url, headers=headers, json=payload) as response:
+                    if response.status == 200:
+                        return True
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"Airtable API error: {response.status} - {error_text}")
+                        return False
 
-            # Add to batch queue
-            self._batch_queue.append({
-                'table_id': table_id,
-                'record_id': record_id,
-                'data': data
-            })
-
-            # Process batch if queue is full
-            if len(self._batch_queue) >= 10:
-                self._process_batch()
-
-            return True
         except Exception as e:
-            logger.error(f"Error updating Airtable record: {e}")
+            logger.error(f"Error updating record: {str(e)}")
             return False
 
     def _process_batch(self) -> None:
@@ -102,27 +119,39 @@ class AirtableService:
         except Exception as e:
             logger.error(f"Error processing Airtable batch: {e}")
 
-    def get_existing_record_id(self, table_id: str, chat_id: str) -> Optional[str]:
-        """Get existing record ID for a chat_id"""
+    async def get_existing_record_id(self, table_id: str, chat_id: str) -> Optional[str]:
+        """מציאת מזהה רשומה קיימת לפי מזהה צ'אט"""
         try:
-            table = self.api.table(self.base_id, table_id)
-            records = table.all(formula=f"{{מזהה צ'אט בוואטסאפ}} = '{chat_id}'")
-            if records:
-                return records[-1]["id"]
-            return None
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            formula = f"SEARCH('{chat_id}', {{מזהה צ'אט וואטסאפ}})"
+            
+            async with aiohttp.ClientSession() as session:
+                url = f"{self.base_url}/{table_id}?filterByFormula={formula}"
+                async with session.get(url, headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        records = data.get("records", [])
+                        if records:
+                            return records[-1]["id"]
+                    return None
+
         except Exception as e:
-            logger.error(f"Error getting record ID: {e}")
+            logger.error(f"Error getting existing record: {str(e)}")
             return None
 
-    def create_initial_record(self, chat_id: str, sender_name: str, survey: SurveyDefinition) -> Optional[str]:
-        """Create initial record when survey starts"""
+    async def create_initial_record(self, chat_id: str, sender_name: str, survey: SurveyDefinition) -> Optional[str]:
+        """יצירת רשומה התחלתית כשמתחיל שאלון"""
         try:
             record = {
                 "מזהה צ'אט וואטסאפ": chat_id,
                 "שם מלא": sender_name,
                 "סטטוס": "חדש"
             }
-            return self.create_record(survey.airtable_table_id, record)
+            return await self.create_record(survey.airtable_table_id, record)
         except Exception as e:
-            logger.error(f"Error creating initial record: {e}")
+            logger.error(f"Error creating initial record: {str(e)}")
             return None 
