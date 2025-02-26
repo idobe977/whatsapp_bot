@@ -10,6 +10,7 @@ from .whatsapp_ai_service import WhatsAppAIService
 from .whatsapp_meeting_service import WhatsAppMeetingService
 import aiohttp
 import mimetypes
+from project.services.airtable_service import AirtableService
 
 class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
     def __init__(self, instance_id: str, api_token: str):
@@ -17,6 +18,7 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
         self.surveys = self.load_surveys()
         self.survey_state = {}  # Track survey state for each user
         self.SURVEY_TIMEOUT = 30  # Minutes
+        self.airtable = AirtableService()
         self.ALLOWED_FILE_TYPES = {
             'image': ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
             'document': ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
@@ -279,6 +281,17 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
         
         # Create the cleanup task
         self.cleanup_task = asyncio.create_task(cleanup_loop())
+
+    async def get_airtable_record(self, record_id: str, table_name: str) -> Optional[Dict]:
+        """
+        מקבל רשומה מאירטייבל לפי מזהה
+        """
+        try:
+            record = await self.airtable.get_record(record_id, table_name)
+            return record
+        except Exception as e:
+            logger.error(f"Error getting record from Airtable: {str(e)}")
+            return None
 
 def load_surveys_from_json() -> List[SurveyDefinition]:
     """Load all survey definitions from JSON files in the surveys directory"""
