@@ -70,17 +70,13 @@
         "enabled": true
       }
     },
-    {
-      "id": "profile_pic",
-      "type": "file",
-      "text": "אנא שלח/י תמונת פרופיל",
-      "allowed_types": ["image"]
-    },
-    {
-      "id": "resume",
-      "type": "file",
-      "text": "אנא שלח/י את קורות החיים שלך בפורמט PDF",
-      "allowed_types": ["document"]
-    }
-  ]
+{
+  "id": "product_feedback",
+  "type": "bot_file",
+  "text": "הנה תמונה של המוצר החדש שלנו 🌟\nמה דעתך עליו?",
+  "file": {
+    "file_id": "file",
+    "fallback_text": "לא הצלחתי להציג את התמונה, אבל אשמח לשמוע את דעתך על המוצר החדש שלנו"
+  }
+}  ]
 }
