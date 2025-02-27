@@ -8,6 +8,7 @@ from project.utils.logger import logger
 from project.models.survey import SurveyDefinition
 from .whatsapp_ai_service import WhatsAppAIService
 from .whatsapp_meeting_service import WhatsAppMeetingService
+import traceback
 
 class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
     def __init__(self, instance_id: str, api_token: str):
@@ -28,6 +29,9 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
         logger.info(f"Loaded {len(self.surveys)} surveys")
         for survey in self.surveys:
             logger.info(f"Survey loaded: {survey.name} with {len(survey.trigger_phrases)} trigger phrases")
+            
+        # Start the cleanup task
+        asyncio.create_task(self.start_cleanup_task())
 
     def load_surveys(self) -> List[SurveyDefinition]:
         """Load all survey definitions during initialization"""
@@ -128,44 +132,51 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
     async def start_cleanup_task(self) -> None:
         """Start the cleanup task for stale survey states"""
         async def cleanup_loop():
+            logger.info("Starting cleanup loop task")
             while True:
-                current_time = datetime.now()
-                to_remove = []
-                to_remind = []
-                
-                for chat_id, state in self.survey_state.items():
-                    if 'last_activity' in state:
-                        inactive_time = (current_time - state['last_activity']).total_seconds()
-                        
-                        # Check if we need to send a reminder
-                        if inactive_time > self.REMINDER_TIMEOUT * 60 and not state.get('reminder_sent', False):
-                            to_remind.append(chat_id)
-                            state['reminder_sent'] = True
-                            
-                        # Check if we need to terminate the survey
-                        if inactive_time > self.SURVEY_TIMEOUT * 60:
-                            to_remove.append(chat_id)
-                
-                # Send reminders
-                for chat_id in to_remind:
-                    await self.send_message_with_retry(
-                        chat_id, 
-                        "שים/י לב - עברו כבר 2 דקות מאז תשובתך האחרונה. האם את/ה עדיין כאן? 🤔\nאם לא תענה/י תוך 13 דקות, השאלון יסתיים אוטומטית."
-                    )
-                            
-                # Remove stale surveys
-                for chat_id in to_remove:
-                    state = self.survey_state.pop(chat_id)
-                    logger.info(f"Cleaned up stale survey state for {chat_id}")
-                    await self.send_message_with_retry(
-                        chat_id, 
-                        "השאלון בוטל עקב חוסר פעילות של 15 דקות. אנא התחל מחדש כשיהיה לך זמן פנוי 😊"
-                    )
+                try:
+                    current_time = datetime.now()
+                    to_remove = []
+                    to_remind = []
                     
-                    # Update Airtable if record exists
-                    if 'record_id' in state and 'current_survey' in state:
-                        survey = next((s for s in self.surveys if s.name == state['current_survey']), None)
-                        if survey:
+                    logger.debug(f"Checking {len(self.survey_state)} active surveys for timeouts")
+                    for chat_id, state in self.survey_state.items():
+                        if 'last_activity' in state:
+                            inactive_time = (current_time - state['last_activity']).total_seconds()
+                            logger.debug(f"Chat {chat_id} inactive for {inactive_time} seconds")
+                            
+                            # Check if we need to send a reminder
+                            if inactive_time > self.REMINDER_TIMEOUT * 60 and not state.get('reminder_sent', False):
+                                logger.info(f"Adding {chat_id} to reminder list (inactive for {inactive_time} seconds)")
+                                to_remind.append(chat_id)
+                                state['reminder_sent'] = True
+                                
+                            # Check if we need to terminate the survey
+                            if inactive_time > self.SURVEY_TIMEOUT * 60:
+                                logger.info(f"Adding {chat_id} to removal list (inactive for {inactive_time} seconds)")
+                                to_remove.append(chat_id)
+                    
+                    # Send reminders
+                    for chat_id in to_remind:
+                        logger.info(f"Sending reminder to {chat_id}")
+                        await self.send_message_with_retry(
+                            chat_id, 
+                            "שים/י לב - עברו כבר 2 דקות מאז תשובתך האחרונה. האם את/ה עדיין כאן? 🤔\nאם לא תענה/י תוך 13 דקות, השאלון יסתיים אוטומטית."
+                        )
+                                
+                    # Remove stale surveys
+                    for chat_id in to_remove:
+                        state = self.survey_state.pop(chat_id)
+                        logger.info(f"Cleaned up stale survey state for {chat_id}")
+                        await self.send_message_with_retry(
+                            chat_id, 
+                            "השאלון בוטל עקב חוסר פעילות של 15 דקות. אנא התחל מחדש כשיהיה לך זמן פנוי 😊"
+                        )
+                        
+                        # Update Airtable if record exists
+                        if 'record_id' in state and 'survey' in state:
+                            survey = state['survey']
+                            logger.info(f"Updating Airtable record {state['record_id']} for timeout")
                             asyncio.create_task(
                                 self.update_airtable_record(
                                     state['record_id'],
@@ -173,11 +184,16 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
                                     survey
                                 )
                             )
-                
-                # Wait for 30 seconds before next cleanup
-                await asyncio.sleep(30)
+                    
+                    # Wait for 30 seconds before next cleanup
+                    await asyncio.sleep(30)
+                except Exception as e:
+                    logger.error(f"Error in cleanup loop: {str(e)}")
+                    logger.error(f"Stack trace: {traceback.format_exc()}")
+                    await asyncio.sleep(30)  # Still wait before next iteration
         
         # Create the cleanup task
+        logger.info("Initializing cleanup task")
         self.cleanup_task = asyncio.create_task(cleanup_loop())
 
     async def process_file_answer(self, chat_id: str, answer: Dict[str, str], state: Dict, current_question: Dict) -> bool:
