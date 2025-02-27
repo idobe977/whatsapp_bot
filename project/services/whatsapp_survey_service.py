@@ -56,91 +56,15 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
             state['last_activity'] = datetime.now()
             current_question = state["survey"].questions[state["current_question"]]
 
-            # Check if the current question is a file type question
+            # Check if current question expects a file
             if current_question["type"] != "file":
-                logger.warning(f"Received file but current question is not a file type. Current question type: {current_question['type']}")
+                logger.info(f"Received file but current question type is {current_question['type']}")
                 return
 
-            # Get file data
-            file_data = message_data.get("fileMessageData", {})
-            mime_type = file_data.get("mimeType")
-            download_url = file_data.get("downloadUrl")
-            caption = file_data.get("caption", "")
-            file_name = file_data.get("fileName", "")
-
-            # Validate file type
-            allowed_types = current_question.get("allowed_types", ["any"])
-            if "any" not in allowed_types:
-                valid_mime_types = []
-                for file_type in allowed_types:
-                    if file_type in self.ALLOWED_FILE_TYPES:
-                        valid_mime_types.extend(self.ALLOWED_FILE_TYPES[file_type])
-                
-                logger.debug(f"Valid mime types for this question: {valid_mime_types}")
-                logger.debug(f"Received file mime type: {mime_type}")
-                
-                if mime_type not in valid_mime_types:
-                    # Get human-readable file type names
-                    type_names = {
-                        'image': 'תמונה',
-                        'document': 'מסמך',
-                        'video': 'סרטון',
-                        'audio': 'קובץ שמע'
-                    }
-                    allowed_type_names = [type_names.get(t, t) for t in allowed_types]
-                    error_message = state["survey"].messages.get("file_upload", {}).get(
-                        "invalid_type",
-                        "סוג הקובץ שנשלח אינו נתמך. אנא שלח {allowed_types}"
-                    ).format(allowed_types=", ".join(allowed_type_names))
-                    
-                    await self.send_message_with_retry(chat_id, error_message)
-                    return
-
-            # Prepare file attachment object for Airtable
-            attachment = {
-                "url": download_url,
-                "filename": file_name or f"file_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            }
-
-            # Get field name - use the question ID as the field name
-            field_name = current_question["id"]
-            
-            logger.debug(f"Updating Airtable record with attachment in field: {field_name}")
-
-            # Update Airtable with the attachment
-            if await self.update_airtable_record(
-                state["record_id"],
-                {field_name: [attachment]},  # Airtable expects a list of attachment objects
-                state["survey"]
-            ):
-                # Send success message - try to get from different possible locations
-                survey = state["survey"]
-                success_message = "הקובץ נשמר בהצלחה!"  # Default message
-                
-                # Check in survey messages
-                if hasattr(survey, 'messages') and survey.messages:
-                    if isinstance(survey.messages, dict):
-                        # Try to get from file_upload directly in messages
-                        if 'file_upload' in survey.messages and isinstance(survey.messages['file_upload'], dict):
-                            success_message = survey.messages['file_upload'].get('success', success_message)
-                        # Try to get from top-level file_upload object
-                        elif hasattr(survey, 'file_upload') and isinstance(survey.file_upload, dict):
-                            success_message = survey.file_upload.get('success', success_message)
-                
-                logger.debug(f"Using success message: {success_message}")
-                await self.send_message_with_retry(
-                    chat_id,
-                    success_message
-                )
-
-                # Move to next question
+            # Process the file answer
+            if await self.process_file_answer(chat_id, {"fileMessageData": message_data}, state, current_question):
                 state["current_question"] += 1
                 await self.send_next_question(chat_id)
-            else:
-                await self.send_message_with_retry(
-                    chat_id,
-                    "מצטערים, הייתה שגיאה בשמירת הקובץ. נא לנסות שוב."
-                )
 
         except Exception as e:
             logger.error(f"Error handling file message: {str(e)}")
@@ -256,29 +180,8 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
         # Create the cleanup task
         self.cleanup_task = asyncio.create_task(cleanup_loop())
 
-    async def process_survey_answer(self, chat_id: str, answer: Dict[str, str]) -> None:
-        """Process a survey answer"""
-        state = self.survey_state.get(chat_id)
-        if not state:
-            return
-
-        # Update last activity time and reset reminder flag
-        state["last_activity"] = datetime.now()
-        state["reminder_sent"] = False
-
-        survey = state["survey"]
-        current_question = survey.questions[state["current_question"]]
-
-        # Update Airtable with the answer
-        update_data = {
-            current_question["id"]: answer["content"]
-        }
-
-        # Check if the current question is a file type question
-        if current_question["type"] != "file":
-            logger.warning(f"Received answer but current question is not a file type. Current question type: {current_question['type']}")
-            return
-
+    async def process_file_answer(self, chat_id: str, answer: Dict[str, str], state: Dict, current_question: Dict) -> bool:
+        """Process a file answer and update Airtable. Returns True if successful."""
         # Get file data
         file_data = answer.get("fileMessageData", {})
         mime_type = file_data.get("mimeType")
@@ -312,7 +215,7 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
                 ).format(allowed_types=", ".join(allowed_type_names))
                 
                 await self.send_message_with_retry(chat_id, error_message)
-                return
+                return False
 
         # Prepare file attachment object for Airtable
         attachment = {
@@ -350,15 +253,118 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
                 chat_id,
                 success_message
             )
-
-            # Move to next question
-            state["current_question"] += 1
-            await self.send_next_question(chat_id)
+            return True
         else:
             await self.send_message_with_retry(
                 chat_id,
                 "מצטערים, הייתה שגיאה בשמירת הקובץ. נא לנסות שוב."
             )
+            return False
+
+    async def process_survey_answer(self, chat_id: str, answer: Dict[str, str]) -> None:
+        """Process a survey answer"""
+        state = self.survey_state.get(chat_id)
+        if not state:
+            return
+
+        # Update last activity time and reset reminder flag
+        state["last_activity"] = datetime.now()
+        state["reminder_sent"] = False
+
+        survey = state["survey"]
+        current_question = survey.questions[state["current_question"]]
+
+        # Handle file type questions separately
+        if current_question["type"] == "file":
+            if await self.process_file_answer(chat_id, answer, state, current_question):
+                state["current_question"] += 1
+                await self.send_next_question(chat_id)
+            return
+
+        # Update Airtable with the answer
+        update_data = {
+            current_question["id"]: answer["content"]
+        }
+
+        if state["current_question"] > 0:
+            update_data["סטטוס"] = "בטיפול"
+        
+        # Run tasks concurrently
+        tasks = [
+            self.generate_response_reflection(
+                current_question["text"], 
+                answer["content"], 
+                survey, 
+                {**current_question, "chat_id": chat_id}
+            ),
+            self.update_airtable_record(state["record_id"], update_data, survey)
+        ]
+        reflection, airtable_success = await asyncio.gather(*tasks)
+        
+        if reflection:
+            await self.send_message_with_retry(chat_id, reflection)
+            await asyncio.sleep(1.5)
+        
+        if airtable_success and answer.get("is_final", True):
+            # Check for flow logic
+            if "flow" in current_question:
+                flow = current_question["flow"]
+                next_question_id = None
+                custom_message = None
+                
+                # Check for if condition
+                if "if" in flow and "answer" in flow["if"]:
+                    if answer["content"] == flow["if"]["answer"]:
+                        next_question_id = flow["if"]["then"].get("goto")
+                        custom_message = flow["if"]["then"].get("say")
+                    elif "else_if" in flow:
+                        # Check else_if conditions
+                        for else_if in flow["else_if"]:
+                            if answer["content"] == else_if["answer"]:
+                                next_question_id = else_if["then"].get("goto")
+                                custom_message = else_if["then"].get("say")
+                                break
+                
+                # Check for simple then flow
+                elif "then" in flow:
+                    next_question_id = flow["then"].get("goto")
+                    custom_message = flow["then"].get("say")
+            
+                # Send custom message if exists
+                if custom_message:
+                    await self.send_message_with_retry(chat_id, custom_message)
+                    await asyncio.sleep(1.5)
+                
+                # Find next question index
+                if next_question_id:
+                    next_index = next((i for i, q in enumerate(survey.questions) if q["id"] == next_question_id), None)
+                    if next_index is not None:
+                        state["current_question"] = next_index
+                    else:
+                        state["current_question"] += 1
+                else:
+                    state["current_question"] += 1
+                
+                state.pop("selected_options", None)
+                state.pop("last_poll_response", None)
+                
+                if state["current_question"] >= len(survey.questions):
+                    asyncio.create_task(
+                        self.update_airtable_record(
+                            state["record_id"], 
+                            {"סטטוס": "הושלם"}, 
+                            survey
+                        )
+                    )
+                    await self.finish_survey(chat_id)
+                else:
+                    await self.send_next_question(chat_id)
+                    
+            elif not airtable_success:
+                await self.send_message_with_retry(
+                    chat_id, 
+                    survey.messages["error"]
+                )
 
 def load_surveys_from_json() -> List[SurveyDefinition]:
     """Load all survey definitions from JSON files in the surveys directory"""
