@@ -307,10 +307,11 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
         
         if airtable_success and answer.get("is_final", True):
             # Check for flow logic
+            next_question_id = None
+            custom_message = None
+            
             if "flow" in current_question:
                 flow = current_question["flow"]
-                next_question_id = None
-                custom_message = None
                 
                 # Check for if condition
                 if "if" in flow and "answer" in flow["if"]:
@@ -334,37 +335,37 @@ class WhatsAppSurveyService(WhatsAppAIService, WhatsAppMeetingService):
                 if custom_message:
                     await self.send_message_with_retry(chat_id, custom_message)
                     await asyncio.sleep(1.5)
-                
-                # Find next question index
-                if next_question_id:
-                    next_index = next((i for i, q in enumerate(survey.questions) if q["id"] == next_question_id), None)
-                    if next_index is not None:
-                        state["current_question"] = next_index
-                    else:
-                        state["current_question"] += 1
+            
+            # Find next question index
+            if next_question_id:
+                next_index = next((i for i, q in enumerate(survey.questions) if q["id"] == next_question_id), None)
+                if next_index is not None:
+                    state["current_question"] = next_index
                 else:
                     state["current_question"] += 1
-                
-                state.pop("selected_options", None)
-                state.pop("last_poll_response", None)
-                
-                if state["current_question"] >= len(survey.questions):
-                    asyncio.create_task(
-                        self.update_airtable_record(
-                            state["record_id"], 
-                            {"סטטוס": "הושלם"}, 
-                            survey
-                        )
+            else:
+                state["current_question"] += 1
+            
+            state.pop("selected_options", None)
+            state.pop("last_poll_response", None)
+            
+            if state["current_question"] >= len(survey.questions):
+                asyncio.create_task(
+                    self.update_airtable_record(
+                        state["record_id"], 
+                        {"סטטוס": "הושלם"}, 
+                        survey
                     )
-                    await self.finish_survey(chat_id)
-                else:
-                    await self.send_next_question(chat_id)
-                    
-            elif not airtable_success:
-                await self.send_message_with_retry(
-                    chat_id, 
-                    survey.messages["error"]
                 )
+                await self.finish_survey(chat_id)
+            else:
+                await self.send_next_question(chat_id)
+                    
+        elif not airtable_success:
+            await self.send_message_with_retry(
+                chat_id, 
+                survey.messages["error"]
+            )
 
 def load_surveys_from_json() -> List[SurveyDefinition]:
     """Load all survey definitions from JSON files in the surveys directory"""
