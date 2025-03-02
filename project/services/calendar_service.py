@@ -95,8 +95,8 @@ class CalendarService:
             
             # Get current day's working hours
             day_name = date.strftime('%A').lower()
-            if day_name not in working_hours:
-                logger.warning(f"No working hours defined for {day_name}")
+            if day_name not in working_hours or working_hours[day_name] is None:
+                logger.debug(f"No working hours defined for {day_name} or day is marked as non-working")
                 return []
                 
             day_hours = working_hours[day_name]
