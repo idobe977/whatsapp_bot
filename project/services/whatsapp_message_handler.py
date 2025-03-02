@@ -36,6 +36,8 @@ class WhatsAppMessageHandler(WhatsAppBaseService):
             # First check if user is in middle of a survey
             if chat_id in self.survey_state:
                 state = self.survey_state[chat_id]
+                state['last_activity'] = datetime.now()
+                state['reminder_sent'] = False
                 # Process as answer to current question
                 await self.process_survey_answer(chat_id, {"type": "text", "content": text})
                 return
@@ -235,6 +237,7 @@ class WhatsAppMessageHandler(WhatsAppBaseService):
             if chat_id in self.survey_state:
                 state = self.survey_state[chat_id]
                 state['last_activity'] = datetime.now()
+                state['reminder_sent'] = False
                 
                 # Check if this is a meeting scheduler response
                 scheduler_state = state.get('meeting_scheduler')
